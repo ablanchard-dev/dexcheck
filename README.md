@@ -8,6 +8,15 @@ report plus a SHA-256 fingerprint of that report.
 Built for the Warzup community to vet players reported for cheating: the player
 runs it on a screen-share while a moderator watches the output scroll by.
 
+## Quickstart (Windows)
+
+1. **Download** — green **Code** button → **Download ZIP**.
+2. **Unblock** — right-click the `.zip` → Properties → tick **Unblock** → OK, *before* extracting. The scripts are unsigned; this removes the Mark-of-the-Web so Windows shows no security warning.
+3. **Extract** — right-click the `.zip` → Extract All.
+4. **Run** — double-click **`LANCER-LE-CHECK.bat`**, type the moderator's word if given (else just Enter), accept the UAC prompt. A `.txt` + `.html` report lands on the Desktop with a SHA-256 fingerprint.
+
+Player guide: `LANCER-LE-CHECK.txt`. Visual setup check (DMA / second PC): `CHECK-CONSOLE-SETUP.txt`.
+
 ## What it checks
 
 Windows (`DexCheck.ps1` — 24 probes, +2 in `-Deep`):
