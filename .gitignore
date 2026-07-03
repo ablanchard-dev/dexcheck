@@ -1,0 +1,14 @@
+# Rapports generes par l'outil
+DexCheck_*.txt
+DexCheck_*.html
+DexCheck_*.csv
+DexCheck-Mac_*.txt
+DexCheck-Mac_*.html
+
+# Docs de travail internes (non destinees a la publication)
+docs/
+
+# Sauvegardes / fichiers temporaires
+*.bak
+*.tmp
+.wzc_*

@@ -1,0 +1,58 @@
+DEXCHECK - CHECK VISUEL DU SETUP (console + anti-DMA/radar)
+=========================================================
+
+A QUOI CA SERT
+--------------
+Les outils logiciels (DexCheck PC et Mac) checkent LA machine qu'on leur fait
+tourner dessus. Ils ne voient PAS :
+- un cheat qui tourne sur une 2e machine separee qu'on ne te laisse pas checker,
+- une carte DMA bien cachee (elle usurpe son identite pour passer le scan),
+- un joueur sur console (PS5/Xbox) : rien a scanner.
+
+Ce check visuel est le filet pour ces cas. A faire en partage d'ecran + camera,
+par un responsable. Il ne remplace pas les outils : il les complete.
+
+RAPPEL TECHNIQUE
+----------------
+- Aimbot par vision (console + PC) : une carte de CAPTURE prend l'image de la
+  console, un logiciel "regarde" et vise, et un boitier renvoie les actions a la
+  manette. Vise les ennemis VISIBLES.
+- Wallhack / radar : a besoin de lire la MEMOIRE du jeu. Soit un cheat logiciel
+  sur le PC, soit une carte DMA dans le PC qui envoie les positions a une 2e
+  machine (souvent un Mac/laptop) qui affiche un radar. Sur console le wallhack
+  est quasi impossible (memoire verrouillee) -> le risque console = aimbot/recoil.
+
+A DEMANDER AU JOUEUR (camera)
+-----------------------------
+1. Filme tout ton poste : la console/PC, les ecrans, et DERRIERE (les cables).
+2. Montre tes mains sur la manette/souris pendant quelques duels.
+3. Si PC : on peut demander une photo de l'interieur de la tour (cartes PCIe).
+
+A REPERER (drapeaux rouges)
+---------------------------
+[ ] Une 2e machine allumee a cote (PC, Mac, laptop) sans raison claire.
+[ ] Une carte de capture (Elgato, AverMedia...) ou un cable HDMI qui part vers
+    une autre machine que l'ecran.
+[ ] Un cable USB3 qui relie deux machines entre elles (lien typique d'une DMA).
+[ ] Une carte PCIe inconnue dans le PC (FPGA/DMA), souvent avec un port USB-C/USB3.
+[ ] Un radar / une carte des ennemis affiche sur un 2e ecran, un telephone ou une
+    tablette posee a cote.
+[ ] Un boitier entre la manette et la console (Cronus Zen, XIM, Titan).
+[ ] Refus de montrer une partie du setup, ou "ce Mac/PC la n'a rien a voir".
+
+DRAPEAUX COMPORTEMENTAUX (a regarder en match)
+----------------------------------------------
+[ ] Il reagit / tire sur des ennemis qu'il ne peut pas voir (a travers un mur,
+    avant qu'ils apparaissent) = wallhack/radar.
+[ ] Prefire systematique aux angles, pile sur la tete a l'apparition.
+[ ] La visee "colle" ou snap d'un coup sur la cible = aimbot.
+[ ] Recul anormalement plat sur des armes a fort recul = anti-recoil.
+
+DECISION
+--------
+Aucun check n'est fiable a 100%. La bonne methode = combiner :
+  1. l'outil logiciel (PC: DexCheck.ps1, Mac: DexCheck-Mac.command),
+  2. ce check visuel du setup,
+  3. l'observation en match (comportement).
+Un seul drapeau = on creuse. Plusieurs drapeaux = SUSPECT. Le responsable garde
+le jugement final ; un refus de cooperer est en soi un signal.

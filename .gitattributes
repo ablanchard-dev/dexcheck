@@ -1,0 +1,5 @@
+# Preserve exact bytes on checkout across OSes:
+#  - PowerShell scripts keep their UTF-8 BOM (PS 5.1 needs it for accents)
+#  - the macOS .command keeps LF-only endings (CRLF breaks the shebang on macOS)
+*.ps1      -text
+*.command  -text

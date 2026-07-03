@@ -1,0 +1,35 @@
+DEXCHECK - PC CHECK
+=================
+
+A faire en partage d'ecran (Discord/AnyDesk) avec un responsable Warzup.
+Le check ne modifie rien sur ton PC : il lit et produit un rapport.
+
+LANCER LE CHECK
+---------------
+1. Ouvre PowerShell (touche Windows, tape "powershell", Entree).
+2. Copie-colle cette ligne (adapte le chemin si besoin), puis Entree :
+
+   powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\Downloads\DexCheck.ps1"
+
+3. Une fenetre bleue (UAC) demande l'autorisation administrateur : clique OUI.
+   (necessaire pour lire l'historique des suppressions, les journaux, etc.)
+4. Le check se deroule a l'ecran. A la fin :
+   - un VERDICT (CLEAN / A VERIFIER / SUSPECT / ROUGE),
+   - un rapport ecrit sur ton Bureau (DexCheck_<PC>_<date>.txt et .html),
+   - un code SHA256 affiche : c'est l'empreinte du rapport, note-la / screen.
+5. Appuie sur Entree pour fermer.
+
+VERSION APPROFONDIE (si un responsable le demande)
+--------------------------------------------------
+Ajoute -Deep a la fin de la commande (plus long) :
+
+   powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\Downloads\DexCheck.ps1" -Deep
+
+SI LA COMMANDE EST BLOQUEE
+--------------------------
+- Clic droit sur DexCheck.ps1 > "Executer avec PowerShell", puis OUI a l'UAC.
+- Si Windows bloque encore : c'est l'execution policy ; utilise bien la commande
+  ci-dessus avec -ExecutionPolicy Bypass.
+
+Si tu refuses l'UAC, le check tourne quand meme mais en mode partiel (certaines
+verifications affichent "N/A") - le responsable le verra a l'ecran.

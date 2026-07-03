@@ -1,0 +1,44 @@
+DEXCHECK - PC CHECK (MAC)
+=======================
+
+A faire en partage d'ecran (Discord) avec un responsable Warzup.
+Le check ne modifie rien sur ton Mac : il lit et produit un rapport.
+
+LANCER LE CHECK (mode normal)
+-----------------------------
+1. Ouvre Terminal (touche Cmd+Espace, tape "Terminal", Entree).
+2. Copie-colle cette ligne, puis Entree :
+
+   bash ~/Downloads/DexCheck-Mac.command
+
+3. Le check se deroule a l'ecran. A la fin :
+   - un VERDICT (CLEAN / A VERIFIER / SUSPECT / ROUGE),
+   - un rapport ecrit sur ton Bureau (DexCheck-Mac_<nom>_<date>.txt et .html),
+   - un code SHA256 affiche : empreinte du rapport, note-la / screen.
+
+VERSION APPROFONDIE (si un responsable le demande)
+--------------------------------------------------
+Elle lit en plus QUI a la permission d'enregistrer l'ecran (le signal n.1 d'un
+aimbot par vision) et l'historique des navigateurs. Ca demande deux choses :
+
+A) Donner l'acces disque au Terminal (une fois) :
+   - Menu Pomme > Reglages Systeme > Confidentialite et securite
+   - "Acces complet au disque" > active "Terminal"
+   - Ferme et rouvre le Terminal.
+
+B) Relance avec sudo et --deep (il demandera ton mot de passe Mac) :
+
+   sudo bash ~/Downloads/DexCheck-Mac.command --deep
+
+Si tu refuses l'acces disque, le check tourne quand meme mais les verifications
+profondes affichent "N/A" - le responsable le verra a l'ecran.
+
+SI LA COMMANDE NE PASSE PAS
+---------------------------
+- Verifie que le fichier est bien dans ton dossier Telechargements (Downloads).
+- Si tu l'as mis ailleurs, remplace ~/Downloads/ par le bon chemin (ou glisse
+  le fichier dans la fenetre Terminal apres avoir tape "bash ").
+
+NOTE : ce check couvre un Mac. Si tu joues sur PC, c'est l'autre outil
+(DexCheck.ps1, Windows). Si tu joues sur console, le responsable fait en plus
+un check visuel de ton setup (voir avec lui).
