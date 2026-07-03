@@ -2,6 +2,11 @@
 title DexCheck - PC Check
 cd /d "%~dp0"
 
+rem Retire l'etiquette "fichier venu d'internet" (Mark-of-the-Web) de tout le
+rem dossier -> plus d'avertissement SmartScreen aux lancements suivants, sans
+rem aucune signature de code.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0' -Recurse -Force -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
+
 echo.
 echo   DEXCHECK - PC CHECK
 echo   ==================

@@ -4,22 +4,29 @@ DEXCHECK - PC CHECK
 A faire en partage d'ecran (Discord/AnyDesk) avec un responsable Warzup.
 Le check ne modifie rien sur ton PC : il lit et produit un rapport.
 
-LE PLUS SIMPLE (double-clic)
-----------------------------
-1. Telecharge le dossier (bouton vert "Code" > "Download ZIP" sur GitHub),
-   puis clic droit sur le .zip > "Extraire tout".
-2. Double-clique sur   LANCER-LE-CHECK.bat
-3. Si le moderateur te dicte un mot, tape-le (sinon appuie juste sur Entree).
-4. Une fenetre bleue (UAC) demande l'autorisation admin : clique OUI.
-   (necessaire pour lire l'historique des suppressions, les journaux...)
-5. Le check se deroule a l'ecran. A la fin :
-   - un VERDICT (CLEAN / A VERIFIER / SUSPECT / ROUGE),
-   - un rapport sur ton Bureau (DexCheck_<PC>_<date>.txt et .html),
-   - un code SHA256 affiche : c'est l'empreinte du rapport, note-la / screen.
-6. Appuie sur Entree pour fermer.
+METHODE ZERO AVERTISSEMENT (recommandee)
+----------------------------------------
+1. Telecharge le ZIP (bouton vert "Code" > "Download ZIP" sur GitHub).
+2. AVANT d'extraire : clic droit sur le .zip > Proprietes >
+   coche "Debloquer" (case en bas a droite) > OK.
+   -> ca retire l'etiquette "venu d'internet", donc AUCUN avertissement ensuite.
+3. Clic droit sur le .zip > "Extraire tout".
+4. Double-clique sur   LANCER-LE-CHECK.bat
+5. Si le moderateur te dicte un mot, tape-le (sinon appuie sur Entree).
+6. Fenetre bleue (UAC) : clique OUI (pour lire suppressions, journaux...).
+7. Le check se deroule. A la fin : un VERDICT, un rapport .txt/.html sur le
+   Bureau, et un SHA256 (empreinte du rapport, note-le / screen). Entree pour fermer.
 
-SI LE DOUBLE-CLIC NE MARCHE PAS
--------------------------------
+SI TU AS OUBLIE L'ETAPE 2
+-------------------------
+Au 1er double-clic, Windows peut afficher "Open File - Security Warning" ou
+"Windows a protege votre PC". C'est normal (fichier non signe), ce n'est PAS un
+virus : clique "Informations complementaires" > "Executer quand meme"
+(ou simplement "Executer"). Le launcher se debloque tout seul : aux lancements
+suivants, plus aucun avertissement.
+
+SI LE DOUBLE-CLIC NE MARCHE VRAIMENT PAS
+----------------------------------------
 Ouvre PowerShell (touche Windows, tape "powershell", Entree) et colle :
 
    powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\Downloads\DexCheck.ps1"

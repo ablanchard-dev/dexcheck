@@ -46,7 +46,11 @@ download quarantine.
 
 Windows — simplest: double-click `LANCER-LE-CHECK.bat`. It prompts for the
 moderator's nonce (optional), then runs the check; the script self-elevates via
-UAC. Or from a terminal:
+UAC. The scripts are unsigned, so a downloaded copy carries the Mark-of-the-Web
+and Windows shows a one-time "Run anyway" warning — to avoid it entirely,
+right-click the downloaded `.zip` → Properties → tick **Unblock** → OK *before*
+extracting. The launcher also strips the Mark-of-the-Web from its own folder on
+first run, so later launches are warning-free. Or from a terminal:
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File DexCheck.ps1
