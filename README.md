@@ -44,7 +44,9 @@ download quarantine.
 
 ## Usage
 
-Windows:
+Windows — simplest: double-click `LANCER-LE-CHECK.bat`. It prompts for the
+moderator's nonce (optional), then runs the check; the script self-elevates via
+UAC. Or from a terminal:
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File DexCheck.ps1

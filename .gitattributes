@@ -3,3 +3,5 @@
 #  - the macOS .command keeps LF-only endings (CRLF breaks the shebang on macOS)
 *.ps1      -text
 *.command  -text
+*.bat      -text
+
