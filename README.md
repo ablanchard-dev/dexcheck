@@ -28,7 +28,7 @@ Windows (`DexCheck.ps1` — 24 probes, +2 in `-Deep`):
 - Processes, persistence (Run keys, scheduled tasks), injection/hijack vectors (AppInit_DLLs, AppCertDLLs, IFEO Debugger), event-log clearing (1102/104, rollover-aware)
 - Anti-forensic / secure-wipe tools, browser history against known cheat domains
 - Hardware: DMA cards, FTDI USB3 bridges, capture cards, virtual-pad drivers
-- PCIe enumeration: flags a stock/lazy DMA card by its Xilinx vendor ID (`VEN_10EE`, the pcileech-fpga firmware) or a PCIe device left without a working driver — WARN only (dual-use: legit FPGA dev-boards trigger it), never an auto-verdict. Read-only, so a firmware-spoofed card that clones a real device's identity evades it (see Limits)
+- PCIe enumeration: flags a stock/lazy DMA card by its Xilinx vendor ID (`VEN_10EE`, the pcileech-fpga firmware), or a driverless PCIe device with an *unknown* vendor ID — WARN only (dual-use: legit FPGA dev-boards trigger it), never an auto-verdict. A driverless device from a mass-market vendor (Intel/AMD/NVIDIA/Realtek/… — e.g. a Wi-Fi card on a freshly built PC) is listed but downgraded to INFO, so a new build doesn't raise a false DMA WARN. Read-only, so a firmware-spoofed card that clones a real device's identity evades it (see Limits)
 - System security: Secure Boot, `testsigning` / `nointegritychecks`, TPM
 - Known cheat providers, input-manipulation / anti-recoil devices (Cronus, XIM, Titan, ...)
 - `-Deep`: full USN deletion dump to CSV + free-space signature carving
