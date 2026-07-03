@@ -54,8 +54,8 @@ download quarantine.
 ## Usage
 
 Windows — simplest: double-click `LANCER-LE-CHECK.bat`. It prompts for the
-moderator's nonce (optional), then runs the check; the script self-elevates via
-UAC. The scripts are unsigned, so a downloaded copy carries the Mark-of-the-Web
+moderator's nonce (optional) and whether to run the deeper pass (`o` only if a
+moderator asks), then runs the check; the script self-elevates via UAC. The scripts are unsigned, so a downloaded copy carries the Mark-of-the-Web
 and Windows shows a one-time "Run anyway" warning — to avoid it entirely,
 right-click the downloaded `.zip` → Properties → tick **Unblock** → OK *before*
 extracting. The launcher also strips the Mark-of-the-Web from its own folder on
@@ -64,6 +64,7 @@ first run, so later launches are warning-free. Or from a terminal:
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File DexCheck.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File DexCheck.ps1 -Nonce "MOT-DU-MODO"
+powershell -NoProfile -ExecutionPolicy Bypass -File DexCheck.ps1 -Deep -Nonce "MOT-DU-MODO"
 ```
 
 Accept the UAC prompt for full coverage (raw-volume and system-hive probes need

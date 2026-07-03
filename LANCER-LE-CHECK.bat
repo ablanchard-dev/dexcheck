@@ -21,8 +21,17 @@ echo.
 set "NONCE="
 set /p "NONCE=  Mot dicte par le moderateur (laisse vide + Entree si aucun) : "
 
+set "DEEP="
+set /p "DEEP=  Mode approfondi ? (uniquement si un responsable le demande - plus long) [o/N] : "
+
+rem Construit le flag -Deep seulement si reponse affirmative (o / oui / y).
+set "DEEPFLAG="
+if /i "%DEEP%"=="o"   set "DEEPFLAG= -Deep"
+if /i "%DEEP%"=="oui" set "DEEPFLAG= -Deep"
+if /i "%DEEP%"=="y"   set "DEEPFLAG= -Deep"
+
 if defined NONCE (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0DexCheck.ps1" -Nonce "%NONCE%"
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0DexCheck.ps1" -Nonce "%NONCE%"%DEEPFLAG%
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0DexCheck.ps1"
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0DexCheck.ps1"%DEEPFLAG%
 )
