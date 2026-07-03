@@ -1453,6 +1453,15 @@ function Probe-Hardware {
 # sur les faux positifs de l'enumeration PCIe cote client.
 $script:DmaPciVendors = @('VEN_10EE')
 
+# VID grand public (Intel, AMD, NVIDIA, Realtek, Broadcom, Atheros, Mediatek). Sur une
+# build recente, un device de ces vendeurs peut etre 'sans driver' (reinstall pas encore
+# finie, ex : carte Wi-Fi Intel AX210 en status=Error) = ROUTINE, pas un tell DMA. On le
+# liste quand meme au modo, mais en INFO (pas de faux WARN sur PC neuf). Un VID INCONNU
+# sans driver, et Xilinx, restent en WARN. NOTE securite : un DMA firmware-spoofe en 8086
+# passerait ce filtre -- mais la sonde le documente deja (spoof invisible => check visuel
+# obligatoire), la securite reelle ne repose pas sur ce WARN mais sur l'inspection humaine.
+$script:BenignPciVendors = @('VEN_8086','VEN_10DE','VEN_1002','VEN_1022','VEN_10EC','VEN_14E4','VEN_168C','VEN_14C3','VEN_1969')
+
 function Probe-DmaPci {
     $details = New-Object System.Collections.Generic.List[string]
     $dev = @()
@@ -1461,25 +1470,32 @@ function Probe-DmaPci {
         return (New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'NA' -Severity 0 -Summary "Enumeration PCIe indisponible" -Details @($_.Exception.Message))
     }
     $xil = New-Object System.Collections.Generic.List[string]
-    $nodrv = New-Object System.Collections.Generic.List[string]
+    $nodrv = New-Object System.Collections.Generic.List[string]        # VID inconnu sans driver -> WARN
+    $nodrvBenign = New-Object System.Collections.Generic.List[string]  # VID grand public sans driver -> INFO (probable reinstall)
     foreach($d in $dev){
         $iid = [string]$d.InstanceId
         $fn  = [string]$d.FriendlyName; if ([string]::IsNullOrWhiteSpace($fn)) { $fn = '(sans nom)' }
         if (Test-AnyPattern $iid $script:DmaPciVendors) { $xil.Add("$fn  [$iid]  status=$($d.Status)") }
         # device PCIe en erreur (typiquement sans driver = ConfigManagerErrorCode 28) : tell classique
-        # d'une carte DMA... mais aussi de plein de hardware benin -> WARN, listee pour le modo.
-        elseif ([string]$d.Status -eq 'Error') { $nodrv.Add("$fn  [$iid]  status=Error (sans driver ?)") }
+        # d'une carte DMA... mais aussi de plein de hardware benin. VID grand public => INFO (reinstall),
+        # VID inconnu => WARN. Xilinx (teste avant) reste WARN quoi qu'il arrive.
+        elseif ([string]$d.Status -eq 'Error') {
+            if (Test-AnyPattern $iid $script:BenignPciVendors) { $nodrvBenign.Add("$fn  [$iid]  status=Error (VID grand public : driver non installe ?)") }
+            else { $nodrv.Add("$fn  [$iid]  status=Error (sans driver ?)") }
+        }
     }
     $details.Add("Devices PCIe enumeres : $($dev.Count). Verif read-only = VID de carte DMA connue (Xilinx pcileech) + device PCIe sans driver. Ne voit que ce que le firmware presente : un DMA bien spoofe passe (check visuel obligatoire).")
+    foreach($h in $nodrvBenign){ $details.Add("  sans driver, VID grand public (probable reinstall - a confirmer visuellement, un 2e carte reste possible) : $h") }
     if ($xil.Count -gt 0 -or $nodrv.Count -gt 0) {
         foreach($h in $xil){ $details.Add("  FPGA/DMA connu (Xilinx) : $h") }
-        foreach($h in $nodrv){ $details.Add("  PCIe sans driver : $h") }
+        foreach($h in $nodrv){ $details.Add("  PCIe sans driver (VID inconnu) : $h") }
         $sum = @()
         if ($xil.Count -gt 0){ $sum += "$($xil.Count) carte(s) FPGA Xilinx (pcileech ?)" }
-        if ($nodrv.Count -gt 0){ $sum += "$($nodrv.Count) device(s) PCIe sans driver" }
+        if ($nodrv.Count -gt 0){ $sum += "$($nodrv.Count) device(s) PCIe sans driver (VID inconnu)" }
         return (New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'WARN' -Severity 1 -Summary (($sum -join ' ; ') + " - a verifier (dual-use)") -Details $details)
     }
-    New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'INFO' -Severity 0 -Summary "$($dev.Count) devices PCIe, aucune carte DMA connue ni PCIe sans driver" -Details $details
+    $sumInfo = if ($nodrvBenign.Count -gt 0) { "$($dev.Count) devices PCIe ; $($nodrvBenign.Count) sans driver a VID grand public (probable reinstall), aucune carte DMA connue" } else { "$($dev.Count) devices PCIe, aucune carte DMA connue ni PCIe sans driver" }
+    New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'INFO' -Severity 0 -Summary $sumInfo -Details $details
 }
 
 function Probe-SystemSecurity {

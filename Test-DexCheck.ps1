@@ -176,6 +176,15 @@ Test-Case "Probe-DmaPci : sonde presente, JAMAIS FLAG (anti faux-SUSPECT), detai
     $r = Probe-DmaPci
     ($r.Id -eq 'DMAPCI') -and ($r.Status -in @('INFO','WARN','NA')) -and ($r.Details.Count -ge 1)
 }
+# Fix faux-WARN PC neuf : une carte Wi-Fi Intel AX210 sans driver (build fraiche) ne doit PAS
+# etre traitee comme un device DMA. VID grand public sans driver => INFO ; VID inconnu => WARN.
+Test-Case "BenignPciVendors : matche l'Intel AX210 (VEN_8086) sans driver, PAS le Xilinx pcileech (VEN_10EE)" {
+    (Test-AnyPattern 'PCI\VEN_8086&DEV_2725&SUBSYS_00248086&REV_1A\6&3938BB4D&0&00100011' $script:BenignPciVendors) -and
+    (-not (Test-AnyPattern 'PCI\VEN_10EE&DEV_0666&SUBSYS_00000000&REV_00\4&ABC' $script:BenignPciVendors))
+}
+Test-Case "BenignPciVendors : invariant securite = Xilinx (10EE) n'est JAMAIS classe benin (sinon un pcileech stock passe en INFO)" {
+    -not (@($script:BenignPciVendors) -contains 'VEN_10EE')
+}
 
 # --- Fix faux-SUSPECT Prefetch : outil input dual-use => PAS FLAG, cheat distinctif => FLAG ---
 Test-Case "Prefetch : ds4windows/x360ce.pf = dual-use (WARN, pas FLAG) ; aimbot.pf = FLAG (fin du faux-SUSPECT)" {
