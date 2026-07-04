@@ -206,7 +206,7 @@ Test-Case "Get-MeaningLines : Id sans entree => vide (pas de crash)" {
     (@(Get-MeaningLines (New-ProbeResult -Id 'RECYCLE' -Name r -Status 'WARN' -Severity 1)).Count -eq 0)
 }
 Test-Case "ProbeMeaning : chaque sonde WARN/FLAG-able a une entree Shows+ProvesNot non vide" {
-    $ids = @('IDENT','WINAGE','USN','DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH','PROC','PERSIST','EVTLOG','ANTIFOR','BROWSER','HARDWARE','DMAPCI','SECBOOT','NET','CHEATS','INPUT','VM','DEFENDER','KDRV','INJECT')
+    $ids = @('IDENT','WINAGE','USN','DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH','PROC','PERSIST','EVTLOG','ANTIFOR','BROWSER','DNS','HARDWARE','DMAPCI','SECBOOT','NET','CHEATS','INPUT','VM','DEFENDER','KDRV','INJECT')
     $missing = @($ids | Where-Object { -not $script:ProbeMeaning.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($script:ProbeMeaning[$_].Shows) -or [string]::IsNullOrWhiteSpace($script:ProbeMeaning[$_].ProvesNot) })
     if ($missing) { Write-Host ("      -> manquants: {0}" -f ($missing -join ', ')) -ForegroundColor DarkYellow }
     ($missing.Count -eq 0)
@@ -527,6 +527,22 @@ Test-Case "Get-DefenderAssessment : priorite cheat > temps-reel-coupe (le pire l
     ($a.Status -eq 'FLAG' -and $a.Severity -eq 2)
 }
 
+Test-Case "Get-DomainHits : domaine de cheat present en sous-chaine (cache DNS) => hit" {
+    $h = Get-DomainHits "www.lavicheats.com resolu 1.2.3.4" @('lavicheats.com','ring-1.io')
+    ($h.Count -eq 1 -and $h[0] -eq 'lavicheats.com')
+}
+Test-Case "Get-DomainHits : insensible a la casse + plusieurs domaines" {
+    $h = Get-DomainHits "0.0.0.0 RING-1.IO`nfoo LAVICHEATS.COM" @('lavicheats.com','ring-1.io')
+    ($h.Count -eq 2)
+}
+Test-Case "Get-DomainHits : rien de suspect => 0 hit (pas de faux positif)" {
+    $h = Get-DomainHits "www.google.com github.com discord.com" @('lavicheats.com','ring-1.io')
+    ($h.Count -eq 0)
+}
+Test-Case "Get-DomainHits : null / vide => 0 hit (pas de crash)" {
+    ((Get-DomainHits $null @('x.com')).Count -eq 0) -and ((Get-DomainHits '' @('x.com')).Count -eq 0)
+}
+
 # ---------------------------------------------------------------------------
 Section "C. INTEGRATION (run reel non-admin)"
 
@@ -606,6 +622,11 @@ Test-Case "Sonde PCA presente dans le rapport" {
 }
 Test-Case "Sonde Injection presente dans le rapport" {
     @($statuses.Keys | Where-Object { $_ -like '*Injection*' }).Count -ge 1
+}
+Test-Case "Sonde Cache DNS/hosts presente et jamais FLAG sur ce PC (INFO/OK/WARN/NA, pas de faux SUSPECT)" {
+    $dns = $statuses.GetEnumerator() | Where-Object { $_.Key -like '*DNS*' } | Select-Object -First 1
+    if (-not $dns) { Write-Host "      (sonde DNS absente du rapport)" -ForegroundColor DarkYellow; return $false }
+    ($dns.Value -in @('INFO','OK','WARN','NA'))
 }
 Test-Case "Sonde Cartes PCIe/DMA presente et jamais FLAG sur ce PC (INFO/WARN/NA, pas de faux SUSPECT)" {
     $pci = $statuses.GetEnumerator() | Where-Object { $_.Key -like '*PCIe*' } | Select-Object -First 1

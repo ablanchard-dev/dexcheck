@@ -554,6 +554,7 @@ $script:ProbeMeaning = @{
     EVTLOG    = @{ Shows="des journaux Windows ont ete effaces ou tronques"; ProvesNot="un log plein qui tourne (rollover) est normal ; un effacement peut aussi etre de l'hygiene systeme" }
     ANTIFOR   = @{ Shows="un outil d'effacement securise ou de nettoyage est present / a tourne"; ProvesNot="CCleaner & co sont ultra courants et legitimes - presence n'est pas preuve de wipe de triche" }
     BROWSER   = @{ Shows="un domaine de site de cheat connu est dans l'historique"; ProvesNot="visiter ou lire un site n'est ni l'avoir achete ni l'avoir utilise" }
+    DNS       = @{ Shows="un domaine de cheat a ete resolu (cache DNS, par n'importe quel process) ou est fige dans le fichier hosts"; ProvesNot="resoudre/pinger un domaine n'est ni l'avoir achete ni l'avoir utilise en match ; le cache DNS se vide au reboot / a l'expiration du TTL" }
     HARDWARE  = @{ Shows="un device type DMA / capture / rig est present"; ProvesNot="une carte de capture = streamer normal ; une carte DMA bien configuree usurpe ses IDs et peut passer -> check visuel obligatoire" }
     DMAPCI    = @{ Shows="une carte PCIe FPGA (Xilinx/pcileech) ou un device PCIe sans driver = support materiel possible d'un wallhack/radar DMA sur 2e machine"; ProvesNot="dev-boards FPGA et devices sans driver legitimes declenchent aussi ; une carte DMA bien firmware-spoofee usurpe ses IDs et reste INVISIBLE a ce scan read-only -> check visuel obligatoire" }
     SECBOOT   = @{ Shows="le PC autorise des drivers non signes (testsigning/nointegritychecks) = porte pour un cheat kernel"; ProvesNot="certains outils/dev legitimes l'activent aussi - c'est une porte ouverte, pas une preuve" }
@@ -1375,6 +1376,79 @@ function Probe-Browsers {
     }
 }
 
+function Get-DomainHits {
+    # PUR/testable : rend les domaines (parmi $domains) presents en sous-chaine dans $haystack
+    # (insensible a la casse). Meme semantique que la sonde Navigateurs (un domaine 'lavicheats.com'
+    # est deja borne par des points) -> pas de Test-AnyWord ici. Rend une List (consommer sans @()).
+    param([string]$haystack, [string[]]$domains)
+    $hits = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrEmpty($haystack)) { return ,$hits }
+    foreach($d in $domains){
+        if ([string]::IsNullOrEmpty($d)) { continue }
+        if ($haystack.IndexOf($d, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add($d) }
+    }
+    return ,$hits
+}
+
+function Probe-DnsCache {
+    $details = New-Object System.Collections.Generic.List[string]
+    $hits = New-Object System.Collections.Generic.List[string]
+    $domains = New-Object System.Collections.Generic.List[string]
+    foreach($c in $script:CheatSoftware){ foreach($d in $c.Domains){ $domains.Add($d) } }
+    $dnsReadable = $false
+    $hostsReadable = $false
+
+    # 1) Cache DNS du resolveur : capte une resolution par N'IMPORTE quel process (pas que le navigateur).
+    $dnsText = $null
+    try {
+        $cache = @(Get-DnsClientCache -ErrorAction Stop)
+        $dnsReadable = $true
+        $sb = New-Object System.Text.StringBuilder
+        foreach($e in $cache){ [void]$sb.AppendLine("$($e.Entry) $($e.Data)") }
+        $dnsText = $sb.ToString()
+        $details.Add("Cache DNS : $($cache.Count) entrees (Get-DnsClientCache).")
+    } catch {
+        # Repli sur ipconfig si le module DnsClient n'est pas la : on scanne le texte brut.
+        try {
+            $raw = (ipconfig /displaydns 2>$null | Out-String)
+            if (-not [string]::IsNullOrWhiteSpace($raw)) { $dnsText = $raw; $dnsReadable = $true; $details.Add("Cache DNS : lu via 'ipconfig /displaydns' (repli).") }
+        } catch { }
+    }
+    if ($dnsReadable -and $dnsText) {
+        foreach($h in (Get-DomainHits $dnsText $domains)){ $hits.Add("$h  (cache DNS)") }
+    } elseif (-not $dnsReadable) {
+        $details.Add("Cache DNS illisible.")
+    }
+
+    # 2) Fichier hosts : redirection statique -> survit a un effacement d'historique navigateur.
+    $hostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+    $hostsText = Get-FileBytesText $hostsPath
+    if ($null -ne $hostsText) {
+        $hostsReadable = $true
+        $sb2 = New-Object System.Text.StringBuilder
+        foreach($line in ($hostsText -split "`n")){
+            $t = $line.Trim()
+            if ($t.Length -eq 0 -or $t.StartsWith('#')) { continue }   # ignorer commentaires
+            [void]$sb2.AppendLine($t)
+        }
+        $details.Add("Fichier hosts : $hostsPath (lu).")
+        foreach($h in (Get-DomainHits $sb2.ToString() $domains)){ $hits.Add("$h  (fichier hosts)") }
+    } else {
+        $details.Add("Fichier hosts illisible : $hostsPath")
+    }
+
+    if (-not $dnsReadable -and -not $hostsReadable) {
+        return (New-ProbeResult -Id 'DNS' -Name 'Cache DNS / hosts' -Status 'NA' -Severity 0 -Summary "Cache DNS et fichier hosts illisibles" -Details $details)
+    }
+    if ($hits.Count -gt 0) {
+        foreach($h in $hits){ $details.Add("  HIT: $h") }
+        # Resoudre un domaine (cache) ou une ligne hosts n'est ni l'achat ni l'usage -> WARN, jamais FLAG.
+        return (New-ProbeResult -Id 'DNS' -Name 'Cache DNS / hosts' -Status 'WARN' -Severity 1 -Summary "Domaine(s) de cheat dans le cache DNS / hosts : $($hits.Count) - a verifier (resolution != usage)" -Details $details)
+    }
+    # Cache ephemere (vide au reboot / TTL) -> INFO hors-verdict, pas un OK qui surpromettrait.
+    return (New-ProbeResult -Id 'DNS' -Name 'Cache DNS / hosts' -Status 'INFO' -Severity 0 -Summary "Aucun domaine cheat dans le cache DNS / hosts (cache ephemere)" -Details $details)
+}
+
 function Probe-RecycleBin {
     $details = New-Object System.Collections.Generic.List[string]
     $rb = "$script:SysDrive\`$Recycle.Bin"
@@ -2150,6 +2224,7 @@ function Invoke-DexCheck {
         @{ Name="Journaux d'evenements";         Fn=${function:Probe-EventLogs} }
         @{ Name='Outils anti-forensic/wipe';     Fn=${function:Probe-AntiForensic} }
         @{ Name='Navigateurs (sites cheats)';    Fn=${function:Probe-Browsers} }
+        @{ Name='Cache DNS / hosts';             Fn=${function:Probe-DnsCache} }
         @{ Name='Corbeille';                     Fn=${function:Probe-RecycleBin} }
         @{ Name='Hardware / DMA / capture';      Fn=${function:Probe-Hardware} }
         @{ Name='Cartes PCIe / DMA';             Fn=${function:Probe-DmaPci} }

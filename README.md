@@ -19,7 +19,7 @@ Player guide: `LANCER-LE-CHECK.txt`. Visual setup check (DMA / second PC): `CHEC
 
 ## What it checks
 
-Windows (`DexCheck.ps1` — 24 probes, +2 in `-Deep`):
+Windows (`DexCheck.ps1` — 25 probes, +2 in `-Deep`):
 
 - Identity and clock (clock-rollback heuristic), Windows install age
 - USN journal state and a deleted-file timeline (raw USN journal reader via P/Invoke)
@@ -27,6 +27,7 @@ Windows (`DexCheck.ps1` — 24 probes, +2 in `-Deep`):
 - Live outbound TCP connections + owning process (name and path), matched against the known-cheat provider list — catches a cheat loader / licensing client talking to the internet during the session
 - Processes, persistence (Run keys, scheduled tasks), injection/hijack vectors (AppInit_DLLs, AppCertDLLs, IFEO Debugger), event-log clearing (1102/104, rollover-aware)
 - Anti-forensic / secure-wipe tools, browser history against known cheat domains
+- DNS resolver cache (catches a cheat domain resolved by *any* process, not just the browser) and the `hosts` file (static redirects), matched against the known cheat-domain list — WARN at most (resolving a domain is not using a cheat), never an auto-verdict; the DNS cache is ephemeral (clears on reboot / TTL)
 - Hardware: DMA cards, FTDI USB3 bridges, capture cards, virtual-pad drivers
 - PCIe enumeration: flags a stock/lazy DMA card by its Xilinx vendor ID (`VEN_10EE`, the pcileech-fpga firmware), or a driverless PCIe device with an *unknown* vendor ID — WARN only (dual-use: legit FPGA dev-boards trigger it), never an auto-verdict. A driverless device from a mass-market vendor (Intel/AMD/NVIDIA/Realtek/… — e.g. a Wi-Fi card on a freshly built PC) is listed but downgraded to INFO, so a new build doesn't raise a false DMA WARN. Read-only, so a firmware-spoofed card that clones a real device's identity evades it (see Limits)
 - System security: Secure Boot, `testsigning` / `nointegritychecks`, TPM
@@ -102,7 +103,7 @@ does not claim to catch a determined one. The visual setup check
 
 ## Tests
 
-`Test-DexCheck.ps1` runs 108 cases: static (UTF-8 BOM, parse), unit (detection
+`Test-DexCheck.ps1` runs 115 cases: static (UTF-8 BOM, parse), unit (detection
 logic and verdict mapping), integration (real runs produce report + valid hash),
 regression (no probe ends in ERROR, no false SUSPECT on a clean PC), and a
 true-positive simulation (admin): it plants the trace a self-erasing cheat
