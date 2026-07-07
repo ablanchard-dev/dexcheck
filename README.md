@@ -15,7 +15,7 @@ runs it on a screen-share while a moderator watches the output scroll by.
 3. **Extract** — right-click the `.zip` → Extract All.
 4. **Run** — double-click **`LANCER-LE-CHECK.bat`**, type the moderator's word if given (else just Enter), accept the UAC prompt. A `.txt` + `.html` report lands on the Desktop with a SHA-256 fingerprint.
 
-Player guide: `LANCER-LE-CHECK.txt`. Visual setup check (DMA / second PC): `CHECK-CONSOLE-SETUP.txt`.
+Player guide (French): `LANCER-LE-CHECK.txt`. Visual setup check (DMA / second PC): `CHECK-CONSOLE-SETUP.txt`.
 
 ## What it checks
 
@@ -103,7 +103,7 @@ does not claim to catch a determined one. The visual setup check
 
 ## Tests
 
-`Test-DexCheck.ps1` runs 115 cases: static (UTF-8 BOM, parse), unit (detection
+`Test-DexCheck.ps1` runs 118 cases: static (UTF-8 BOM, parse), unit (detection
 logic and verdict mapping), integration (real runs produce report + valid hash),
 regression (no probe ends in ERROR, no false SUSPECT on a clean PC), and a
 true-positive simulation (admin): it plants the trace a self-erasing cheat

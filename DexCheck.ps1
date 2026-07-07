@@ -544,11 +544,11 @@ $script:ProbeMeaning = @{
     IDENT     = @{ Shows="l'horloge a peut-etre ete reculee pour vieillir des traces"; ProvesNot="un fuseau, une MAJ BIOS ou un dual-boot decalent aussi l'heure - a recouper" }
     WINAGE    = @{ Shows="une reinstallation juste avant le check peut effacer les traces"; ProvesNot="un PC neuf, un nouveau SSD ou une MAJ majeure reinitialisent aussi cette date" }
     USN       = @{ Shows="sans journal USN, plus d'historique date des suppressions"; ProvesNot="le debloat/optimisation gaming le desactive tres couramment" }
-    DELFILES  = @{ Shows="des fichiers ont ete supprimes (nom + date visibles)"; ProvesNot="supprimer un fichier au nom generique n'est pas tricher ; le contenu n'est pas recuperable (SSD/TRIM)" }
-    EXEC      = @{ Shows="un executable a bien tourne, meme s'il a ete efface ensuite"; ProvesNot="une trace d'execution n'est pas un usage en match ; un nom generique reste dual-use" }
+    DELFILES  = @{ Shows="des fichiers ont ete supprimes (nom + date visibles)"; ProvesNot="supprimer un fichier au nom generique n'est pas tricher ; le contenu n'est pas recuperable (SSD/TRIM)"; ShowsFlag="un fichier au nom de cheat DISTINCTIF (pas dual-use) a ete supprime - nom + date de suppression horodates"; ProvesNotFlag="le contenu efface n'est plus analysable (SSD/TRIM) ; mais le nom distinctif et la date de suppression, eux, sont bien la" }
+    EXEC      = @{ Shows="un executable a bien tourne, meme s'il a ete efface ensuite"; ProvesNot="une trace d'execution n'est pas un usage en match ; un nom generique reste dual-use"; ShowsFlag="un executable au nom de cheat DISTINCTIF (pas dual-use) a bel et bien tourne sur cette machine, meme efface ensuite"; ProvesNotFlag="l'artefact prouve l'EXECUTION du cheat, pas le moment precis d'usage en partie ; le binaire efface n'est plus analysable - la trace, elle, a survecu" }
     SHIMCACHE = @{ Shows="un executable est/etait present (survit a la suppression du binaire)"; ProvesNot="Shimcache = presence, pas execution garantie ; ecrit a l'arret, donc les tout derniers lancements manquent" }
-    PCA       = @{ Shows="un programme a ete lance (y compris depuis une cle USB / un partage reseau)"; ProvesNot="un lancement n'est pas une preuve d'usage en partie ; un nom generique = dual-use" }
-    PREFETCH  = @{ Shows="un executable a ete lance recemment"; ProvesNot="beaucoup d'outils listes sont dual-use (manette, remap) ; un prefetch vide peut venir d'un simple nettoyage" }
+    PCA       = @{ Shows="un programme a ete lance (y compris depuis une cle USB / un partage reseau)"; ProvesNot="un lancement n'est pas une preuve d'usage en partie ; un nom generique = dual-use"; ShowsFlag="un cheat au nom DISTINCTIF a ete lance (capture aussi les exe lances depuis une cle USB / un partage reseau)"; ProvesNotFlag="un lancement horodate n'est pas la preuve du moment d'usage en partie ; il prouve bien que le cheat a tourne, meme efface ensuite" }
+    PREFETCH  = @{ Shows="un executable a ete lance recemment"; ProvesNot="beaucoup d'outils listes sont dual-use (manette, remap) ; un prefetch vide peut venir d'un simple nettoyage"; ShowsFlag="un executable au nom de cheat DISTINCTIF (pas un remap/manette dual-use) a ete lance recemment"; ProvesNotFlag="le prefetch date le lancement, pas la duree d'usage en match ; il confirme bien l'execution du cheat" }
     PROC      = @{ Shows="un process au nom connu ou non signe en zone temp tourne en ce moment"; ProvesNot="pas d'inspection memoire ici ; non signe n'est pas malveillant en soi" }
     PERSIST   = @{ Shows="un cheat pourrait se relancer au demarrage"; ProvesNot="la plupart des entrees de demarrage sont legitimes (Steam, GPU, MAJ) - a recouper" }
     EVTLOG    = @{ Shows="des journaux Windows ont ete effaces ou tronques"; ProvesNot="un log plein qui tourne (rollover) est normal ; un effacement peut aussi etre de l'hygiene systeme" }
@@ -573,7 +573,11 @@ function Get-MeaningLines {
     if ($r.Status -notin @('WARN','FLAG')) { return @() }
     $m = $script:ProbeMeaning[$r.Id]
     if ($null -eq $m) { return @() }
-    return @("> Montre : $($m.Shows)", "> Ne prouve pas : $($m.ProvesNot)")
+    # Sur un FLAG (= nom de cheat DISTINCTIF par construction, jamais generique), on affiche une
+    # formulation FERME quand elle existe : pas de hedge "dual-use" qui ne s'applique pas ici.
+    $shows = if ($r.Status -eq 'FLAG' -and $m.ShowsFlag)     { $m.ShowsFlag }     else { $m.Shows }
+    $pnot  = if ($r.Status -eq 'FLAG' -and $m.ProvesNotFlag) { $m.ProvesNotFlag } else { $m.ProvesNot }
+    return @("> Montre : $shows", "> Ne prouve pas : $pnot")
 }
 
 function New-ProbeResult {
@@ -2065,6 +2069,13 @@ function Get-VerdictReasoning {
         $out.Add("Aucune sonde n'a leve de drapeau : rien de suspect dans ce qu'un check logiciel peut voir.")
     } else {
         $out.Add("Ont bouge : $($flags.Count) drapeau(x) rouge(s), $($warns.Count) point(s) a verifier.")
+        # Corroboration : plusieurs artefacts anti-wipe INDEPENDANTS qui pointent un exe de triche
+        # au nom distinctif = execution confirmee, pas un simple soupcon (une trace isolee peut etre
+        # un residu ; plusieurs qui concordent, non).
+        $corr = @($flags | Where-Object { @('DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH') -contains [string]$_.Id })
+        if ($corr.Count -ge 2) {
+            $out.Add("$($corr.Count) artefacts anti-wipe INDEPENDANTS (prefetch / execution / shimcache / PCA...) pointent un executable de triche au nom distinctif : concordance = execution CONFIRMEE malgre l'effacement du binaire, pas un simple soupcon.")
+        }
         if ($prof.Total -ge 2) {
             if ($prof.Escalate) {
                 $out.Add("Un signal FORT non explicable par une optimisation + une corroboration co-occurrent : compatible avec un nettoyage COORDONNE juste avant le check (le verdict a ete monte).")

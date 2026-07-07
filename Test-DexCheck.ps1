@@ -205,6 +205,27 @@ Test-Case "Get-MeaningLines : WARN connu => 2 lignes Montre/Ne prouve pas ; OK =
 Test-Case "Get-MeaningLines : Id sans entree => vide (pas de crash)" {
     (@(Get-MeaningLines (New-ProbeResult -Id 'RECYCLE' -Name r -Status 'WARN' -Severity 1)).Count -eq 0)
 }
+Test-Case "Get-MeaningLines : FLAG (nom distinctif) => formulation FERME, sans hedge dual-use/generique" {
+    $ok = $true
+    foreach ($id in @('DELFILES','EXEC','PCA','PREFETCH')) {
+        $f = @(Get-MeaningLines (New-ProbeResult -Id $id -Name x -Status 'FLAG' -Severity 2)) -join ' '
+        $w = @(Get-MeaningLines (New-ProbeResult -Id $id -Name x -Status 'WARN' -Severity 1)) -join ' '
+        # FLAG = ferme : affirme le nom DISTINCTIF, laisse tomber l'excuse "nom generique" ; WARN garde le hedge.
+        if (($f -notmatch 'DISTINCTIF') -or ($f -match 'generique') -or ($w -notmatch 'dual-use|generique')) { $ok = $false }
+    }
+    $ok
+}
+Test-Case "Get-VerdictReasoning : >=2 artefacts anti-wipe distinctifs => execution CONFIRMEE (pas un soupcon)" {
+    $rs = @(
+        (New-ProbeResult -Id 'EXEC'     -Name e -Status 'FLAG' -Severity 2),
+        (New-ProbeResult -Id 'PREFETCH' -Name p -Status 'FLAG' -Severity 2)
+    )
+    ((Get-VerdictReasoning $rs) -join ' ') -match 'CONFIRMEE'
+}
+Test-Case "Get-VerdictReasoning : 1 seul artefact anti-wipe => pas de ligne 'CONFIRMEE' (evite le surclassement)" {
+    $rs = @((New-ProbeResult -Id 'EXEC' -Name e -Status 'FLAG' -Severity 2))
+    -not (((Get-VerdictReasoning $rs) -join ' ') -match 'CONFIRMEE')
+}
 Test-Case "ProbeMeaning : chaque sonde WARN/FLAG-able a une entree Shows+ProvesNot non vide" {
     $ids = @('IDENT','WINAGE','USN','DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH','PROC','PERSIST','EVTLOG','ANTIFOR','BROWSER','DNS','HARDWARE','DMAPCI','SECBOOT','NET','CHEATS','INPUT','VM','DEFENDER','KDRV','INJECT')
     $missing = @($ids | Where-Object { -not $script:ProbeMeaning.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($script:ProbeMeaning[$_].Shows) -or [string]::IsNullOrWhiteSpace($script:ProbeMeaning[$_].ProvesNot) })
