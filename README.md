@@ -8,7 +8,16 @@ report plus a SHA-256 fingerprint of that report.
 Built for the Warzup community to vet players reported for cheating: the player
 runs it on a screen-share while a moderator watches the output scroll by.
 
-## Quickstart (Windows)
+## Démarrage rapide 🇫🇷 (Windows) — aucune ligne de commande à taper
+
+1. **Télécharger** — bouton vert **Code** → **Download ZIP**.
+2. **Débloquer** — clic droit sur le `.zip` → **Propriétés** → cocher **Débloquer** (en bas) → **OK**, *avant* d'extraire. Les scripts ne sont pas signés ; ça retire l'étiquette « venu d'internet » → Windows n'affiche aucun avertissement.
+3. **Extraire** — clic droit sur le `.zip` → **Extraire tout**.
+4. **Lancer** — double-clic sur **`LANCER-LE-CHECK.bat`**, tape le mot du modérateur s'il t'en donne un (sinon appuie sur **Entrée**), puis accepte la fenêtre bleue (**UAC → Oui**). Un rapport `.txt` + `.html` arrive sur le **Bureau** avec une empreinte **SHA-256**.
+
+Guide joueur détaillé (FR) : `LANCER-LE-CHECK.txt`. Vérif visuelle du setup (DMA / 2e PC) : `CHECK-CONSOLE-SETUP.txt`.
+
+## Quickstart 🇬🇧 (Windows) — no command line to type
 
 1. **Download** — green **Code** button → **Download ZIP**.
 2. **Unblock** — right-click the `.zip` → Properties → tick **Unblock** → OK, *before* extracting. The scripts are unsigned; this removes the Mark-of-the-Web so Windows shows no security warning.
