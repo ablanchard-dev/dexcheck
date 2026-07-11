@@ -77,7 +77,13 @@ $script:InputTools = @(
     @{ Name='Cronus Zen / CronusMAX'; App=@('cronus zen','cronusmax','cronus'); Driver=@(); Usb=@('cronus'); Severity=2 }
     @{ Name='XIM (Apex/Matrix/Nexus)'; App=@('xim manager','xim apex','xim matrix','xim nexus'); Driver=@(); Usb=@('xim'); Severity=2 }
     @{ Name='Titan Two / Titan One'; App=@('gtuner','titan two','titan one','consoletuner'); Driver=@(); Usb=@('titan two','titan one','consoletuner'); Severity=2 }
-    @{ Name='Strike Pack (Collective Minds)'; App=@('strike pack','collective minds'); Driver=@(); Usb=@('strike pack','collective minds'); Severity=1 }
+    @{ Name='ReaSnow S1'; App=@('reasnow'); Driver=@(); Usb=@('reasnow'); Severity=2 }
+    @{ Name='Strike Pack (Collective Minds)'; App=@('strike pack','collective minds'); Driver=@(); Usb=@('strike pack','collective minds'); Severity=2 }
+    # Injection HID (aimbot 2e PC, meta 2025) : noms de PRODUIT distinctifs. Base WARN (presence a
+    # corroborer, jamais FLAG-sur-presence). Sources : dma-cheats.com/hid, lonelyshop. La puce
+    # sous-jacente (ch340/ch9329/teensy/arduino) n'est JAMAIS un token (dual-use = faux positifs).
+    # 'ferrum' EXCLU : collision Ferrum Audio (DAC/amplis USB haut de gamme) -> a sourcer un token propre.
+    @{ Name='kmbox / makcu (injection HID)'; App=@('kmbox','kmboxnet','makcu'); Driver=@(); Usb=@('kmbox','kmboxnet','makcu'); Severity=1 }
     @{ Name='reWASD'; App=@('rewasd'); Driver=@('rewasd'); Usb=@(); Severity=1 }
     @{ Name='DS4Windows / x360ce'; App=@('ds4windows','x360ce'); Driver=@('vigembus','scpvbus'); Usb=@(); Severity=0 }
     @{ Name='Logitech G HUB / LGS'; App=@('logitech g hub','logitech gaming software'); Driver=@(); Usb=@(); Severity=0 }
@@ -1736,7 +1742,7 @@ function Probe-InputManipulation {
     foreach($t in $script:InputTools){
         $reason = $null; $sev = $t.Severity
         foreach($n in $names){ if (Test-AnyPattern $n $t.App) { $reason="app '$n'"; break } }
-        if (-not $reason -and $t.Usb.Count -gt 0){ foreach($dv in $devs){ $hay = ('{0} {1}' -f $dv.FriendlyName, $dv.InstanceId); if (Test-AnyWord $hay $t.Usb) { $reason="device '$($dv.FriendlyName)'"; $sev=2; break } } }
+        if (-not $reason -and $t.Usb.Count -gt 0){ foreach($dv in $devs){ $hay = ('{0} {1}' -f $dv.FriendlyName, $dv.InstanceId); if (Test-AnyWord $hay $t.Usb) { $reason="device '$($dv.FriendlyName)'"; break } } }
         if (-not $reason -and $t.Driver.Count -gt 0){ foreach($dr in $drivers){ if (Test-AnyPattern $dr $t.Driver) { $reason="driver '$dr'"; break } } }
         if ($reason){ $hits.Add([pscustomobject]@{ Name=$t.Name; Reason=$reason; Sev=$sev }) }
     }

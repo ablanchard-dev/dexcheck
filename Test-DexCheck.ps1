@@ -120,6 +120,26 @@ Test-Case "INPUT probe : token 'zen studio' retire de Cronus (Zen Studios = edit
     $cr = $script:InputTools | Where-Object { $_.Name -like '*Cronus*' }
     (-not ($cr.App -contains 'zen studio')) -and ($cr.App -contains 'cronus')
 }
+Test-Case "INPUT probe : hardware de triche = FLAG-tier (Cronus/XIM/Titan/ReaSnow/StrikePack sev 2) ; kmbox/makcu = WARN (sev 1)" {
+    $t = $script:InputTools
+    $sev = { param($n) ($t | Where-Object { $_.Name -like "*$n*" }).Severity }
+    ((& $sev 'Cronus') -eq 2) -and ((& $sev 'XIM') -eq 2) -and ((& $sev 'Titan') -eq 2) -and
+    ((& $sev 'ReaSnow') -eq 2) -and ((& $sev 'Strike Pack') -eq 2) -and ((& $sev 'kmbox') -eq 1)
+}
+Test-Case "INPUT probe : garde-fou puces => un FriendlyName CH340/Arduino/Ferrum Audio ne matche AUCUN token device" {
+    # kmbox/makcu sont construits sur ces puces generiques ; les flagger brulerait un bricoleur
+    # Arduino ou un audiophile (Ferrum Audio = DAC/amplis USB). Aucun token Usb ne doit matcher.
+    $allUsb = @(); foreach($x in $script:InputTools){ $allUsb += $x.Usb }
+    (-not (Test-AnyWord 'USB-SERIAL CH340' $allUsb)) -and
+    (-not (Test-AnyWord 'Arduino Uno (COM5)' $allUsb)) -and
+    (-not (Test-AnyWord 'Ferrum ERCO USB DAC' $allUsb)) -and
+    (Test-AnyWord 'KMBOX NET' $allUsb) -and (Test-AnyWord 'MAKCU' $allUsb)
+}
+Test-Case "INPUT probe : plus de force-sev-2 sur match USB (la table Severity est la source de verite ; kmbox device => WARN pas FLAG)" {
+    $mov = Get-Content (Join-Path $PSScriptRoot 'DexCheck.ps1') -Raw
+    $usbLine = @(($mov -split "\r?\n") | Where-Object { $_ -match 'Test-AnyWord \$hay \$t\.Usb' })
+    ($usbLine.Count -ge 1) -and (@($usbLine | Where-Object { $_ -match '\$sev\s*=\s*2' }).Count -eq 0)
+}
 Test-Case "CheatFlagWords ne contient AUCUN mot generique (sinon faux FLAG => faux SUSPECT)" {
     $generic = @('cheat','loader','skript','hwid','cleaner','unlocker','menu')
     (@($script:CheatFlagWords | Where-Object { $generic -contains $_ }).Count -eq 0)
