@@ -790,6 +790,29 @@ Test-Case "PS history : lignes benignes / null => 0 hit (pas de faux positif, pa
     ((Get-PsHistoryHits $null $t).Count -eq 0)
 }
 
+Test-Case "7045 : install d'un driver BYOVD dual-use (rtcore64=Afterburner) => WARN pas FLAG (date conservee)" {
+    $installs = @([pscustomobject]@{ Name='RTCore64'; Path='C:\Windows\rtcore64.sys'; Time='2026-07-10 16:48' })
+    $h = Get-DriverInstallHits $installs (Get-PsHistoryFlagTargets) $script:VulnerableDrivers
+    ($h.Count -eq 1) -and ($h[0].Level -eq 'WARN') -and ($h[0].Time -eq '2026-07-10 16:48')
+}
+Test-Case "7045 : install d'un service au nom de PROVIDER distinctif (engineowning) => FLAG" {
+    $installs = @([pscustomobject]@{ Name='engineowning_drv'; Path='C:\x\eo.sys'; Time='x' })
+    $h = Get-DriverInstallHits $installs (Get-PsHistoryFlagTargets) $script:VulnerableDrivers
+    ($h.Count -eq 1) -and ($h[0].Level -eq 'FLAG')
+}
+Test-Case "7045 : 'aimbot-remover.sys' + un service legitime (NVIDIA) => AUCUN hit (nom de categorie != preuve, service legit ignore)" {
+    $installs = @(
+        [pscustomobject]@{ Name='aimbot-remover'; Path='C:\x\aimbot-remover.sys'; Time='x' },
+        [pscustomobject]@{ Name='NVDisplay.ContainerLocalSystem'; Path='C:\Program Files\NVIDIA Corporation\Display.NvContainer\NVDisplay.Container.exe'; Time='x' }
+    )
+    $h = Get-DriverInstallHits $installs (Get-PsHistoryFlagTargets) $script:VulnerableDrivers
+    ($h.Count -eq 0)
+}
+Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
+    ((Get-DriverInstallHits $null (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0) -and
+    ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
+}
+
 # --- Launcher : garde-fous contre le retour du bug "fenetre qui se ferme" -----
 # Le .bat doit posseder SEUL l'elevation (sinon double-elevation => 2 fenetres,
 # la non-admin se ferme). Ces tests lisent la structure du .bat, pas son execution

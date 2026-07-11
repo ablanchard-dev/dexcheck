@@ -575,6 +575,7 @@ $script:ProbeMeaning = @{
     VM        = @{ Shows="le check tourne peut-etre dans une VM pendant qu'on joue sur l'hote (evasion screenshare)"; ProvesNot="Hyper-V/VBS/WSL sont presents sur des machines reelles Win11 - a confirmer visuellement" }
     DEFENDER  = @{ Shows="une exclusion ou une protection coupee peut cacher un cheat de l'antivirus"; ProvesNot="beaucoup d'exclusions sont legitimes (jeux, dev) - le contexte compte" }
     KDRV      = @{ Shows="un driver kernel non signe ou connu abusable (BYOVD) = acces kernel possible pour un cheat"; ProvesNot="ces drivers sont souvent dual-use (Afterburner/HWiNFO/monitoring) - a confirmer" }
+    DRVINST   = @{ Shows="un driver/service abusable (BYOVD) a ete installe, avec sa date - complete KDRV qui ne voit que les drivers charges maintenant"; ProvesNot="beaucoup de drivers legitimes s'installent en service (Afterburner/HWiNFO/anti-triche) ; la date d'install seule ne prouve pas un usage cheat"; ShowsFlag="un service/driver au nom de cheat DISTINCTIF a ete installe a telle date (trace SCM qui survit a la suppression du binaire)"; ProvesNotFlag="le nom distinctif + la date d'install sont solides ; reste a confirmer l'usage en match (VOD)" }
     INJECT    = @{ Shows="un point d'injection DLL (AppInit/AppCert/IFEO) est positionne = un overlay/cheat peut se charger dans le jeu"; ProvesNot="quelques outils legitimes en posent - valeur non vide = a verifier, pas a bannir" }
 }
 
@@ -1986,6 +1987,57 @@ function Probe-KernelDrivers {
     New-ProbeResult -Id 'KDRV' -Name 'Drivers kernel (BYOVD)' -Status $a.Status -Severity $a.Severity -Summary $a.Summary -Details $details
 }
 
+function Get-DriverInstallHits {
+    # PUR/testable. Classe des installs de service/driver (event 7045) : FLAG si le nom/chemin porte
+    # un nom de PROVIDER de cheat DISTINCTIF (jamais un mot de categorie -> pas de faux "aimbot-remover"),
+    # WARN si un driver BYOVD dual-use (rtcore64=Afterburner, winring0=HWiNFO...) -- la DATE d'install
+    # est le vrai apport (KDRV ne voit que les drivers CHARGES ; 7045 attrape un install-puis-suppression).
+    # installs = liste de @{ Name; Path; Time }. Rend une List (consommer sans @()).
+    param($installs, [string[]]$flagPatterns, [string[]]$byovdPatterns)
+    $hits = New-Object System.Collections.Generic.List[object]
+    if ($null -eq $installs) { return ,$hits }
+    foreach ($i in $installs) {
+        $hay = ('{0} {1}' -f $i.Name, $i.Path)
+        if (Test-AnyWord $hay $flagPatterns) {
+            $hits.Add([pscustomobject]@{ Name=$i.Name; Path=$i.Path; Time=$i.Time; Level='FLAG' })
+        } elseif (Test-AnyWord $hay $byovdPatterns) {
+            $hits.Add([pscustomobject]@{ Name=$i.Name; Path=$i.Path; Time=$i.Time; Level='WARN' })
+        }
+    }
+    return ,$hits
+}
+
+function Probe-DriverInstalls {
+    $details = New-Object System.Collections.Generic.List[string]
+    # Event 7045 (System log, Service Control Manager) = "un service/driver a ete installe", avec sa
+    # DATE. Lisible sans admin. Properties : [0]=nom, [1]=chemin image, [4]=compte.
+    $events = $null
+    try { $events = @(Get-WinEvent -FilterHashtable @{LogName='System'; Id=7045} -MaxEvents 500 -ErrorAction Stop) }
+    catch {
+        return (New-ProbeResult -Id 'DRVINST' -Name 'Installs de driver/service (7045)' -Status 'NA' -Severity 0 -Summary "Aucun event 7045 lisible (log vide/tourne ou inaccessible)" -Details @($_.Exception.Message))
+    }
+    $installs = New-Object System.Collections.Generic.List[object]
+    foreach ($e in $events) {
+        $nm = ''; $pth = ''
+        try { $nm  = [string]$e.Properties[0].Value } catch { }
+        try { $pth = [string]$e.Properties[1].Value } catch { }
+        $installs.Add([pscustomobject]@{ Name=$nm; Path=$pth; Time=$e.TimeCreated })
+    }
+    $details.Add("Installs de service/driver analyses (event 7045) : $($installs.Count).")
+    $hits = Get-DriverInstallHits $installs (Get-PsHistoryFlagTargets) $script:VulnerableDrivers
+    $flagHits = @($hits | Where-Object { $_.Level -eq 'FLAG' })
+    $warnHits = @($hits | Where-Object { $_.Level -eq 'WARN' })
+    if ($flagHits.Count -gt 0) {
+        foreach ($h in $flagHits) { $details.Add(("  FLAG install au nom de cheat distinctif : {0}  ({1})  installe le {2}" -f $h.Name, $h.Path, $h.Time)) }
+        foreach ($h in $warnHits) { $details.Add(("  (BYOVD dual-use : {0} installe le {1})" -f $h.Name, $h.Time)) }
+        return (New-ProbeResult -Id 'DRVINST' -Name 'Installs de driver/service (7045)' -Status 'FLAG' -Severity 2 -Summary "$($flagHits.Count) install de service au nom de cheat distinctif" -Details $details)
+    } elseif ($warnHits.Count -gt 0) {
+        foreach ($h in $warnHits) { $details.Add(("  driver abusable (BYOVD) installe : {0}  ({1})  le {2}" -f $h.Name, $h.Path, $h.Time)) }
+        return (New-ProbeResult -Id 'DRVINST' -Name 'Installs de driver/service (7045)' -Status 'WARN' -Severity 1 -Summary "$($warnHits.Count) install(s) de driver abusable (BYOVD) date(s) - a verifier (dual-use : Afterburner/HWiNFO)" -Details $details)
+    }
+    New-ProbeResult -Id 'DRVINST' -Name 'Installs de driver/service (7045)' -Status 'OK' -Severity 0 -Summary "$($installs.Count) install(s) analyse(s), aucun driver abusable/cheat" -Details $details
+}
+
 function Probe-Injection {
     # Vecteurs d'INJECTION / hijack au demarrage des process (un overlay/cheat qui se charge
     # DANS le jeu) : AppInit_DLLs (DLL chargee dans tout process usant user32.dll), AppCertDLLs,
@@ -2335,6 +2387,7 @@ function Invoke-DexCheck {
         @{ Name='Outils anti-forensic/wipe';     Fn=${function:Probe-AntiForensic} }
         @{ Name='Navigateurs (sites cheats)';    Fn=${function:Probe-Browsers} }
         @{ Name='Historique PowerShell';         Fn=${function:Probe-PsHistory} }
+        @{ Name='Installs de driver/service (7045)'; Fn=${function:Probe-DriverInstalls} }
         @{ Name='Cache DNS / hosts';             Fn=${function:Probe-DnsCache} }
         @{ Name='Corbeille';                     Fn=${function:Probe-RecycleBin} }
         @{ Name='Hardware / DMA / capture';      Fn=${function:Probe-Hardware} }
