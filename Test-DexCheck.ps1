@@ -749,6 +749,37 @@ Test-Case "USN vrai-positif : le token bidon N'EST PAS un vrai mot de cheat (l'a
     (-not (Test-AnyWord 'dexcheck-selftest-baitztoken.exe' $flag)) -and (-not (Test-AnyWord 'dexcheck-selftest-baitztoken.exe' $script:CheatWarnWords))
 }
 
+Test-Case "PS history : download-and-exec dual-use (Chris Titus winutil) => WARN, pas FLAG (cible pas un token cheat)" {
+    $f = Get-CheatFlagPatterns
+    $h = Get-PsHistoryHits @('iwr -useb https://christitus.com/win | iex') $f
+    ($h.Count -eq 1) -and (-not $h[0].IsFlag)
+}
+Test-Case "PS history : telechargement depuis une CIBLE au nom de cheat distinctif (engineowning) => FLAG" {
+    $f = Get-CheatFlagPatterns
+    $h = Get-PsHistoryHits @('iwr https://engineowning.to/loader.ps1 | iex') $f
+    ($h.Count -eq 1) -and ($h[0].IsFlag)
+}
+Test-Case "PS history : un COMMENTAIRE mentionnant aimbot, sans verbe de telechargement => AUCUN hit (nom != preuve)" {
+    $f = Get-CheatFlagPatterns
+    $h = Get-PsHistoryHits @('# comment enlever un aimbot de mon pc','Get-Process') $f
+    ($h.Count -eq 0)
+}
+Test-Case "PS history : MARIUS (board legitime) telecharge => WARN pas FLAG (veracite : marius n'est pas un token cheat)" {
+    $f = Get-CheatFlagPatterns
+    $h = Get-PsHistoryHits @('iwr https://raw.githubusercontent.com/EODBruz/MARIUS-BOARD-CONFIGURATOR/main/MARIUS.ps1 | iex') $f
+    ($h.Count -eq 1) -and (-not $h[0].IsFlag)
+}
+Test-Case "PS history : -EncodedCommand (base64, pas d'URL) => WARN (verbe suspect), jamais FLAG sans cible" {
+    $f = Get-CheatFlagPatterns
+    $h = Get-PsHistoryHits @('powershell -enc SQBFAFgA') $f
+    ($h.Count -eq 1) -and (-not $h[0].IsFlag)
+}
+Test-Case "PS history : lignes benignes / null => 0 hit (pas de faux positif, pas de crash)" {
+    $f = Get-CheatFlagPatterns
+    ((Get-PsHistoryHits @('cd C:\','Get-ChildItem','git status') $f).Count -eq 0) -and
+    ((Get-PsHistoryHits $null $f).Count -eq 0)
+}
+
 # --- Launcher : garde-fous contre le retour du bug "fenetre qui se ferme" -----
 # Le .bat doit posseder SEUL l'elevation (sinon double-elevation => 2 fenetres,
 # la non-admin se ferme). Ces tests lisent la structure du .bat, pas son execution

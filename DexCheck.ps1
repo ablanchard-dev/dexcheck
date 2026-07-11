@@ -564,6 +564,7 @@ $script:ProbeMeaning = @{
     EVTLOG    = @{ Shows="des journaux Windows ont ete effaces ou tronques"; ProvesNot="un log plein qui tourne (rollover) est normal ; un effacement peut aussi etre de l'hygiene systeme" }
     ANTIFOR   = @{ Shows="un outil d'effacement securise ou de nettoyage est present / a tourne"; ProvesNot="CCleaner & co sont ultra courants et legitimes - presence n'est pas preuve de wipe de triche" }
     BROWSER   = @{ Shows="un domaine de site de cheat connu est dans l'historique"; ProvesNot="visiter ou lire un site n'est ni l'avoir achete ni l'avoir utilise" }
+    PSHIST    = @{ Shows="une commande telecharger-et-executer (iwr|iex, DownloadString, -enc...) est dans l'historique PowerShell"; ProvesNot="telecharger-et-executer est dual-use : winutil (Chris Titus), winget, scripts d'optimisation legitimes le font aussi ; seule une CIBLE au nom de cheat distinctif escalade"; ShowsFlag="une commande a telecharge-et-execute depuis une URL au nom de cheat DISTINCTIF"; ProvesNotFlag="l'URL fetch porte un nom de cheat distinctif = tres suspect ; reste a confirmer que le binaire a tourne en match (VOD)" }
     DNS       = @{ Shows="un domaine de cheat a ete resolu (cache DNS, par n'importe quel process) ou est fige dans le fichier hosts"; ProvesNot="resoudre/pinger un domaine n'est ni l'avoir achete ni l'avoir utilise en match ; le cache DNS se vide au reboot / a l'expiration du TTL" }
     HARDWARE  = @{ Shows="un device type DMA / capture / rig est present"; ProvesNot="une carte de capture = streamer normal ; une carte DMA bien configuree usurpe ses IDs et peut passer -> check visuel obligatoire" }
     DMAPCI    = @{ Shows="une carte PCIe FPGA (Xilinx/pcileech) ou un device PCIe sans driver = support materiel possible d'un wallhack/radar DMA sur 2e machine"; ProvesNot="dev-boards FPGA et devices sans driver legitimes declenchent aussi ; une carte DMA bien firmware-spoofee usurpe ses IDs et reste INVISIBLE a ce scan read-only -> check visuel obligatoire" }
@@ -1402,6 +1403,72 @@ function Get-DomainHits {
         if ($haystack.IndexOf($d, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $hits.Add($d) }
     }
     return ,$hits
+}
+
+function Get-PsHistoryHits {
+    # PUR/testable. Rend les lignes d'historique PowerShell qui font du "telecharger-et-executer".
+    # Le VERBE (iwr|iex, DownloadString, -enc, bitsadmin, certutil -urlcache) est dual-use (winutil
+    # de Chris Titus, winget... sont legitimes) => WARN. On ne monte en FLAG que si la CIBLE EXTRAITE
+    # (l'URL reellement fetch) matche un token cheat DISTINCTIF par word-boundary -- JAMAIS le token
+    # n'importe ou dans la ligne (un commentaire "# comment enlever un aimbot" ne doit rien declencher,
+    # et il n'a de toute facon pas de verbe de telechargement). Rend une List (consommer sans @()).
+    param([string[]]$lines, [string[]]$flagPatterns)
+    $hits = New-Object System.Collections.Generic.List[object]
+    if ($null -eq $lines) { return ,$hits }
+    $verbs = @(
+        '(?i)(iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget)\b[^\r\n]*\|\s*(iex|invoke-expression)\b',
+        '(?i)(iex|invoke-expression)\b[^\r\n]*(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring|net\.webclient)',
+        '(?i)\.downloadstring\s*\(',
+        '(?i)\s-e(nc|ncodedcommand)\b',
+        '(?i)\bbitsadmin\b[^\r\n]*/transfer',
+        '(?i)\bcertutil\b[^\r\n]*-urlcache'
+    )
+    foreach ($ln in $lines) {
+        if ([string]::IsNullOrWhiteSpace($ln)) { continue }
+        $isVerb = $false
+        foreach ($v in $verbs) { if ([regex]::IsMatch($ln, $v)) { $isVerb = $true; break } }
+        if (-not $isVerb) { continue }
+        # cible = la/les URL(s) reellement presentes dans la commande (host + chemin fetch).
+        $target = ''
+        $m = [regex]::Matches($ln, '(?i)https?://[^\s''"|)]+')
+        if ($m.Count -gt 0) { $target = (($m | ForEach-Object { $_.Value }) -join ' ') }
+        $isFlag = ($target -ne '') -and (Test-AnyWord $target $flagPatterns)
+        $hits.Add([pscustomobject]@{ Line=$ln.Trim(); Target=$target; IsFlag=$isFlag })
+    }
+    return ,$hits
+}
+
+function Probe-PsHistory {
+    $details = New-Object System.Collections.Generic.List[string]
+    # PSReadLine journalise les commandes tapees par l'utilisateur (par-user, sans admin).
+    $paths = @(
+        (Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt')
+    )
+    $lines = New-Object System.Collections.Generic.List[string]
+    $found = 0
+    foreach ($p in $paths) {
+        if (Test-Path -LiteralPath $p) {
+            $found++
+            $details.Add("Historique : $p")
+            $txt = Get-FileBytesText $p
+            if ($txt) { foreach ($l in ($txt -split "\r?\n")) { $lines.Add($l) } }
+        }
+    }
+    if ($found -eq 0) {
+        return (New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'NA' -Severity 0 -Summary "Aucun historique PSReadLine trouve" -Details $details)
+    }
+    $hits = Get-PsHistoryHits $lines (Get-CheatFlagPatterns)
+    $flagHits = @($hits | Where-Object { $_.IsFlag })
+    $warnHits = @($hits | Where-Object { -not $_.IsFlag })
+    if ($flagHits.Count -gt 0) {
+        foreach ($h in $flagHits) { $details.Add("  FLAG telechargement d'une cible cheat : $($h.Line)") }
+        foreach ($h in $warnHits) { $details.Add("  (download-and-exec dual-use : $($h.Line))") }
+        return (New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'FLAG' -Severity 2 -Summary "$($flagHits.Count) telechargement(s)-et-execution d'une cible au nom de cheat distinctif" -Details $details)
+    } elseif ($warnHits.Count -gt 0) {
+        foreach ($h in $warnHits) { $details.Add("  download-and-exec : $($h.Line)") }
+        return (New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'WARN' -Severity 1 -Summary "$($warnHits.Count) commande(s) telecharger-et-executer - a verifier (dual-use : winutil/winget legitimes)" -Details $details)
+    }
+    New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'OK' -Severity 0 -Summary "$($lines.Count) ligne(s), aucun telecharger-et-executer" -Details $details
 }
 
 function Probe-DnsCache {
@@ -2245,6 +2312,7 @@ function Invoke-DexCheck {
         @{ Name="Journaux d'evenements";         Fn=${function:Probe-EventLogs} }
         @{ Name='Outils anti-forensic/wipe';     Fn=${function:Probe-AntiForensic} }
         @{ Name='Navigateurs (sites cheats)';    Fn=${function:Probe-Browsers} }
+        @{ Name='Historique PowerShell';         Fn=${function:Probe-PsHistory} }
         @{ Name='Cache DNS / hosts';             Fn=${function:Probe-DnsCache} }
         @{ Name='Corbeille';                     Fn=${function:Probe-RecycleBin} }
         @{ Name='Hardware / DMA / capture';      Fn=${function:Probe-Hardware} }
