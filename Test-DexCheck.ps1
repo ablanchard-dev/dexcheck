@@ -813,6 +813,16 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "Headline ACTION : 'ne pas accuser' sur A VERIFIER et SUSPECT ; 'arbitre' sur ROUGE ; 'check visuel' sur CLEAN" {
+    ((Get-VerdictAction 'SUSPECT')    -match '(?i)ne pas accuser') -and
+    ((Get-VerdictAction 'A VERIFIER') -match '(?i)ne pas accuser') -and
+    ((Get-VerdictAction 'ROUGE')      -match '(?i)arbitre') -and
+    ((Get-VerdictAction 'CLEAN')      -match '(?i)check visuel')
+}
+Test-Case "Headline ACTION : purement presentation (verdict inconnu => action neutre, jamais de crash)" {
+    ((Get-VerdictAction 'CLEAN').Length -gt 0) -and ((Get-VerdictAction 'nimportequoi') -match '(?i)check visuel')
+}
+
 # --- Launcher : garde-fous contre le retour du bug "fenetre qui se ferme" -----
 # Le .bat doit posseder SEUL l'elevation (sinon double-elevation => 2 fenetres,
 # la non-admin se ferme). Ces tests lisent la structure du .bat, pas son execution

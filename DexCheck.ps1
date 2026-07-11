@@ -2239,6 +2239,20 @@ function Get-VerdictReasoning {
     return $out
 }
 
+function Get-VerdictAction {
+    # PUR/testable. L'ACTION que le modo doit prendre pour ce verdict -- c'est LE point du headline :
+    # l'echec type est de tirer une MAUVAISE ACTION d'un label (accuser sur un SUSPECT). Purement
+    # presentation : ne recalcule RIEN, lit le verdict deja calcule par Get-Verdict.
+    param([string]$verdict)
+    switch ($verdict) {
+        'ROUGE'      { return "MONTRER a l'arbitre : artefacts distinctifs corroborants (voir DRAPEAUX ROUGES), garder le rapport hashe. Ne pas bannir sur ce seul rapport sans arbitrage." }
+        'SUSPECT'    { return "NE PAS accuser : un seul artefact distinctif = a verifier, pas une preuve. Poursuivre le check visuel du setup + croiser la VOD." }
+        'A VERIFIER' { return "NE PAS accuser : des points dual-use a recouper. Poursuivre le check visuel du setup." }
+        'CLEAN'      { return "Rien de suspect cote logiciel. Poursuivre le check visuel (DMA / 2e PC / OS reimage non couverts) : un verdict propre ne prouve pas l'absence de triche." }
+        default      { return "Poursuivre le check visuel du setup." }
+    }
+}
+
 function Write-Reports {
     param($results, [string]$dir, [datetime]$start, [bool]$degraded, [bool]$deep)
     $verdict = Get-Verdict $results
@@ -2260,6 +2274,7 @@ function Write-Reports {
     if (-not [string]::IsNullOrWhiteSpace($script:Nonce)) { [void]$sb.AppendLine(" Nonce      : $script:Nonce   (dicte par le modo => ce rapport a ete genere LIVE pour cette session)") }
     [void]$sb.AppendLine(" Mode       : " + $(if($deep){'APPROFONDI (-Deep)'}else{'rapide'}) + $(if($degraded){'  [DEGRADE - sans admin]'}else{''}))
     [void]$sb.AppendLine(" VERDICT    : $verdict")
+    [void]$sb.AppendLine(" ACTION     : $(Get-VerdictAction $verdict)")
     [void]$sb.AppendLine(" BILAN      : $(Get-StatusTally $results)")
     [void]$sb.AppendLine("------------------------------------------------------------------")
     [void]$sb.AppendLine(" RAISONNEMENT (ce qui est trouve / ce que ca prouve / ce que ca ne prouve pas) :")
@@ -2443,6 +2458,7 @@ function Invoke-DexCheck {
     Write-Host "  ==================================================================" -ForegroundColor $vcol
     Write-Host ("   VERDICT : {0}" -f $rep.Verdict) -ForegroundColor $vcol
     Write-Host "  ==================================================================" -ForegroundColor $vcol
+    Write-Host ("   ACTION  : {0}" -f (Get-VerdictAction $rep.Verdict)) -ForegroundColor $vcol
     foreach($rl in (Get-VerdictReasoning $results)){ Write-Host ("   $rl") -ForegroundColor DarkGray }
     Write-Host ("   Rapport : {0}" -f $rep.Txt) -ForegroundColor Gray
     Write-Host ("   HTML    : {0}" -f $rep.Html) -ForegroundColor Gray
