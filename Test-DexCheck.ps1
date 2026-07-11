@@ -749,35 +749,45 @@ Test-Case "USN vrai-positif : le token bidon N'EST PAS un vrai mot de cheat (l'a
     (-not (Test-AnyWord 'dexcheck-selftest-baitztoken.exe' $flag)) -and (-not (Test-AnyWord 'dexcheck-selftest-baitztoken.exe' $script:CheatWarnWords))
 }
 
+Test-Case "PS history : le set FLAG = providers/domaines distinctifs, JAMAIS les mots de categorie (aimbot/wallhack/spoofer)" {
+    $t = Get-PsHistoryFlagTargets
+    (-not (Test-AnyWord 'x-aimbot-remover' $t)) -and (-not (Test-AnyWord 'wallhack' $t)) -and
+    (-not (Test-AnyWord 'spoofer' $t)) -and (Test-AnyWord 'engineowning.to' $t)
+}
 Test-Case "PS history : download-and-exec dual-use (Chris Titus winutil) => WARN, pas FLAG (cible pas un token cheat)" {
-    $f = Get-CheatFlagPatterns
-    $h = Get-PsHistoryHits @('iwr -useb https://christitus.com/win | iex') $f
+    $t = Get-PsHistoryFlagTargets
+    $h = Get-PsHistoryHits @('iwr -useb https://christitus.com/win | iex') $t
     ($h.Count -eq 1) -and (-not $h[0].IsFlag)
 }
-Test-Case "PS history : telechargement depuis une CIBLE au nom de cheat distinctif (engineowning) => FLAG" {
-    $f = Get-CheatFlagPatterns
-    $h = Get-PsHistoryHits @('iwr https://engineowning.to/loader.ps1 | iex') $f
+Test-Case "PS history : telechargement depuis un DOMAINE/PROVIDER de cheat distinctif (engineowning) => FLAG" {
+    $t = Get-PsHistoryFlagTargets
+    $h = Get-PsHistoryHits @('iwr https://engineowning.to/loader.ps1 | iex') $t
     ($h.Count -eq 1) -and ($h[0].IsFlag)
 }
+Test-Case "PS history : 'aimbot-remover' (outil qui SUPPRIME un cheat) telecharge => WARN pas FLAG (l'innocent est protege)" {
+    $t = Get-PsHistoryFlagTargets
+    $h = Get-PsHistoryHits @('iwr https://github.com/foo/aimbot-remover/raw/main/clean.ps1 | iex') $t
+    ($h.Count -eq 1) -and (-not $h[0].IsFlag)
+}
 Test-Case "PS history : un COMMENTAIRE mentionnant aimbot, sans verbe de telechargement => AUCUN hit (nom != preuve)" {
-    $f = Get-CheatFlagPatterns
-    $h = Get-PsHistoryHits @('# comment enlever un aimbot de mon pc','Get-Process') $f
+    $t = Get-PsHistoryFlagTargets
+    $h = Get-PsHistoryHits @('# comment enlever un aimbot de mon pc','Get-Process') $t
     ($h.Count -eq 0)
 }
 Test-Case "PS history : MARIUS (board legitime) telecharge => WARN pas FLAG (veracite : marius n'est pas un token cheat)" {
-    $f = Get-CheatFlagPatterns
-    $h = Get-PsHistoryHits @('iwr https://raw.githubusercontent.com/EODBruz/MARIUS-BOARD-CONFIGURATOR/main/MARIUS.ps1 | iex') $f
+    $t = Get-PsHistoryFlagTargets
+    $h = Get-PsHistoryHits @('iwr https://raw.githubusercontent.com/EODBruz/MARIUS-BOARD-CONFIGURATOR/main/MARIUS.ps1 | iex') $t
     ($h.Count -eq 1) -and (-not $h[0].IsFlag)
 }
-Test-Case "PS history : -EncodedCommand (base64, pas d'URL) => WARN (verbe suspect), jamais FLAG sans cible" {
-    $f = Get-CheatFlagPatterns
-    $h = Get-PsHistoryHits @('powershell -enc SQBFAFgA') $f
-    ($h.Count -eq 1) -and (-not $h[0].IsFlag)
+Test-Case "PS history : Start-BitsTransfer + -EncodedCommand (base64, pas d'URL) => WARN (verbe suspect), jamais FLAG sans cible" {
+    $t = Get-PsHistoryFlagTargets
+    ((Get-PsHistoryHits @('powershell -enc SQBFAFgA') $t)[0].IsFlag -eq $false) -and
+    ((Get-PsHistoryHits @('Start-BitsTransfer -Source http://x/y.exe -Destination C:\t.exe') $t).Count -eq 1)
 }
 Test-Case "PS history : lignes benignes / null => 0 hit (pas de faux positif, pas de crash)" {
-    $f = Get-CheatFlagPatterns
-    ((Get-PsHistoryHits @('cd C:\','Get-ChildItem','git status') $f).Count -eq 0) -and
-    ((Get-PsHistoryHits $null $f).Count -eq 0)
+    $t = Get-PsHistoryFlagTargets
+    ((Get-PsHistoryHits @('cd C:\','Get-ChildItem','git status') $t).Count -eq 0) -and
+    ((Get-PsHistoryHits $null $t).Count -eq 0)
 }
 
 # --- Launcher : garde-fous contre le retour du bug "fenetre qui se ferme" -----

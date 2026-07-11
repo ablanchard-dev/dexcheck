@@ -1415,12 +1415,17 @@ function Get-PsHistoryHits {
     param([string[]]$lines, [string[]]$flagPatterns)
     $hits = New-Object System.Collections.Generic.List[object]
     if ($null -eq $lines) { return ,$hits }
+    # ponytail: on couvre les verbes download-and-exec courants. Deux cas VOLONTAIREMENT ignores
+    # (trop de faux positifs pour le gain) : le raccourci '-e'/'-en' de -EncodedCommand (bare '-e'
+    # collisionne partout), et le telechargement-puis-lancement en DEUX etapes (iwr -OutFile x ;
+    # Start-Process x) dont la regex serait fragile et bruyante. Tout reste WARN de toute facon.
     $verbs = @(
         '(?i)(iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget)\b[^\r\n]*\|\s*(iex|invoke-expression)\b',
         '(?i)(iex|invoke-expression)\b[^\r\n]*(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring|net\.webclient)',
         '(?i)\.downloadstring\s*\(',
         '(?i)\s-e(nc|ncodedcommand)\b',
         '(?i)\bbitsadmin\b[^\r\n]*/transfer',
+        '(?i)\bstart-bitstransfer\b',
         '(?i)\bcertutil\b[^\r\n]*-urlcache'
     )
     foreach ($ln in $lines) {
@@ -1436,6 +1441,23 @@ function Get-PsHistoryHits {
         $hits.Add([pscustomobject]@{ Line=$ln.Trim(); Target=$target; IsFlag=$isFlag })
     }
     return ,$hits
+}
+
+function Get-PsHistoryFlagTargets {
+    # Set FLAG de la sonde historique = SEULEMENT des noms de PRODUIT/PROVIDER distinctifs + leurs
+    # DOMAINES (non generiques). PAS les mots de categorie de CheatFlagWords (aimbot/wallhack/spoofer/
+    # injector) : dans une URL, "aimbot" collisionne avec "aimbot-remover", "anti-aimbot-detector",
+    # un injector de modding legitime... = faux FLAG sur un innocent. Ces mots de categorie restent au
+    # plafond WARN de la sonde. Le signal FORT et NON AMBIGU pour une URL = un domaine/nom de provider
+    # de cheat connu (engineowning.to, phantomoverlay...). Source unique, partagee probe + tests.
+    $p = New-Object System.Collections.Generic.List[string]
+    foreach ($c in $script:CheatSoftware) {
+        if (-not $c.GenericName) {
+            foreach ($x in $c.Patterns) { if ($x) { $p.Add($x) } }
+            foreach ($d in $c.Domains)  { if ($d) { $p.Add($d) } }
+        }
+    }
+    return @($p | Select-Object -Unique)
 }
 
 function Probe-PsHistory {
@@ -1457,7 +1479,7 @@ function Probe-PsHistory {
     if ($found -eq 0) {
         return (New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'NA' -Severity 0 -Summary "Aucun historique PSReadLine trouve" -Details $details)
     }
-    $hits = Get-PsHistoryHits $lines (Get-CheatFlagPatterns)
+    $hits = Get-PsHistoryHits $lines (Get-PsHistoryFlagTargets)
     $flagHits = @($hits | Where-Object { $_.IsFlag })
     $warnHits = @($hits | Where-Object { -not $_.IsFlag })
     if ($flagHits.Count -gt 0) {
