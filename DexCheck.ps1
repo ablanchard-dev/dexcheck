@@ -70,12 +70,12 @@ $script:CheatSoftware = @(
 # Tokens USB = mots distinctifs (matches en frontiere de mot \b cote sonde) pour eviter
 # les faux positifs (Ryzen/Zenbook, Maxim, NVIDIA TITAN...).
 $script:InputTools = @(
-    @{ Name='Cronus Zen / CronusMAX'; App=@('cronus zen','zen studio','cronusmax','cronus'); Driver=@(); Usb=@('cronus'); Severity=2 }
+    @{ Name='Cronus Zen / CronusMAX'; App=@('cronus zen','cronusmax','cronus'); Driver=@(); Usb=@('cronus'); Severity=2 }
     @{ Name='XIM (Apex/Matrix/Nexus)'; App=@('xim manager','xim apex','xim matrix','xim nexus'); Driver=@(); Usb=@('xim'); Severity=2 }
     @{ Name='Titan Two / Titan One'; App=@('gtuner','titan two','titan one','consoletuner'); Driver=@(); Usb=@('titan two','titan one','consoletuner'); Severity=2 }
     @{ Name='Strike Pack (Collective Minds)'; App=@('strike pack','collective minds'); Driver=@(); Usb=@('strike pack','collective minds'); Severity=1 }
     @{ Name='reWASD'; App=@('rewasd'); Driver=@('rewasd'); Usb=@(); Severity=1 }
-    @{ Name='DS4Windows / x360ce'; App=@('ds4windows','x360ce'); Driver=@('vigembus','scpvbus'); Usb=@(); Severity=1 }
+    @{ Name='DS4Windows / x360ce'; App=@('ds4windows','x360ce'); Driver=@('vigembus','scpvbus'); Usb=@(); Severity=0 }
     @{ Name='Logitech G HUB / LGS'; App=@('logitech g hub','logitech gaming software'); Driver=@(); Usb=@(); Severity=0 }
     @{ Name='Razer Synapse'; App=@('razer synapse'); Driver=@(); Usb=@(); Severity=0 }
     @{ Name='JoyToKey / AntiMicro / InputMapper'; App=@('joytokey','antimicro','inputmapper'); Driver=@(); Usb=@(); Severity=1 }

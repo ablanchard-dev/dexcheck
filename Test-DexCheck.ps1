@@ -108,6 +108,18 @@ Test-Case "reWASD = dual-use : WARN, JAMAIS FLAG (un remap legit ne rend pas SUS
     (-not (Test-AnyWord 'reWASD.exe' $flag)) -and (Test-AnyWord 'reWASD.exe' $script:CheatWarnWords) -and
     (Test-AnyWord 'Cronus Zen Studio' $flag) -and (Test-AnyWord 'xim apex' $flag)
 }
+Test-Case "INPUT probe : DS4Windows/ViGEmBus = INFO (sev 0) ; reWASD = WARN (sev 1) ; Cronus = FLAG (sev 2)" {
+    # Un joueur manette (ViGEmBus/DS4Windows) ne doit PAS declencher un WARN 'anti-recoil'
+    # sur une machine propre : emulation de manette = presence informative, pas un signal.
+    $ds4 = $script:InputTools | Where-Object { $_.Name -like '*DS4Windows*' }
+    $rw  = $script:InputTools | Where-Object { $_.Name -like '*reWASD*' }
+    $cr  = $script:InputTools | Where-Object { $_.Name -like '*Cronus*' }
+    ($ds4.Severity -eq 0) -and ($rw.Severity -eq 1) -and ($cr.Severity -ge 2)
+}
+Test-Case "INPUT probe : token 'zen studio' retire de Cronus (Zen Studios = editeur de flipper => faux positif), 'cronus' garde la detection" {
+    $cr = $script:InputTools | Where-Object { $_.Name -like '*Cronus*' }
+    (-not ($cr.App -contains 'zen studio')) -and ($cr.App -contains 'cronus')
+}
 Test-Case "CheatFlagWords ne contient AUCUN mot generique (sinon faux FLAG => faux SUSPECT)" {
     $generic = @('cheat','loader','skript','hwid','cleaner','unlocker','menu')
     (@($script:CheatFlagWords | Where-Object { $generic -contains $_ }).Count -eq 0)
