@@ -575,6 +575,17 @@ Test-Case "Get-DomainHits : rien de suspect => 0 hit (pas de faux positif)" {
 Test-Case "Get-DomainHits : null / vide => 0 hit (pas de crash)" {
     ((Get-DomainHits $null @('x.com')).Count -eq 0) -and ((Get-DomainHits '' @('x.com')).Count -eq 0)
 }
+Test-Case "Boutiques DMA : domaines dans CheatSoftware.Domains, entree DOMAINE-SEUL (Patterns vide = jamais un FLAG-fichier)" {
+    $dma = $script:CheatSoftware | Where-Object { $_.Name -eq 'Boutiques DMA/HID' }
+    $allDomains = @(); foreach($c in $script:CheatSoftware){ $allDomains += $c.Domains }
+    ($null -ne $dma) -and ($dma.Patterns.Count -eq 0) -and
+    ($allDomains -contains 'dma-cheats.com') -and ($allDomains -contains 'blurred.gg') -and ($allDomains -contains 'dma-firmware.com')
+}
+Test-Case "Boutiques DMA : visite dma-cheats.com dans l'historique => hit navigateur ; site legit => 0 hit" {
+    $allDomains = @(); foreach($c in $script:CheatSoftware){ $allDomains += $c.Domains }
+    ((Get-DomainHits "visited dma-cheats.com yesterday" $allDomains).Count -ge 1) -and
+    ((Get-DomainHits "www.twitch.tv www.youtube.com" $allDomains).Count -eq 0)
+}
 
 # ---------------------------------------------------------------------------
 Section "C. INTEGRATION (run reel non-admin)"

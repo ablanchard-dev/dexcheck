@@ -62,6 +62,10 @@ $script:CheatSoftware = @(
     @{ Name='Susano'; Patterns=@('susanocheats'); Domains=@('susano.gg'); GenericName=$true }
     @{ Name='Abstract/Abstrakt'; Patterns=@('abstrakt'); Domains=@('abstrakt.cc'); GenericName=$true }
     @{ Name='Klar'; Patterns=@('klarcheats'); Domains=@('klar.gg'); GenericName=$true }
+    # Boutiques hardware DMA/HID (aimbot sur 2e PC, meta 2025) : DOMAINE SEUL (Patterns vide) ->
+    # ne touche QUE l'historique navigateur, jamais un match de nom de fichier. Une visite = WARN
+    # a corroborer (visite != achat != usage). Sources : dma-cheats.com, blurred.gg, dma-firmware.com.
+    @{ Name='Boutiques DMA/HID'; Patterns=@(); Domains=@('dma-cheats.com','blurred.gg','dma-firmware.com'); GenericName=$true }
 )
 
 # Outils de manipulation d'input / anti-recoil / hardware. Dual-use. Severity :
