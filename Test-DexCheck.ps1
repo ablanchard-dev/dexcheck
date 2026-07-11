@@ -706,6 +706,26 @@ Test-Case "USN vrai-positif : le token bidon N'EST PAS un vrai mot de cheat (l'a
     (-not (Test-AnyWord 'dexcheck-selftest-baitztoken.exe' $flag)) -and (-not (Test-AnyWord 'dexcheck-selftest-baitztoken.exe' $script:CheatWarnWords))
 }
 
+# --- Launcher : garde-fous contre le retour du bug "fenetre qui se ferme" -----
+# Le .bat doit posseder SEUL l'elevation (sinon double-elevation => 2 fenetres,
+# la non-admin se ferme). Ces tests lisent la structure du .bat, pas son execution
+# (le double-clic / UAC restent une verification humaine).
+$script:BatPath = Join-Path $PSScriptRoot 'LANCER-LE-CHECK.bat'
+$script:BatText = if (Test-Path $script:BatPath) { Get-Content -LiteralPath $script:BatPath -Raw } else { '' }
+
+Test-Case "Launcher : s'eleve lui-meme (net session + Start-Process RunAs + exit)" {
+    ($script:BatText -match '(?i)net session') -and
+    ($script:BatText -match '(?i)Start-Process\s+-FilePath\s+''%~f0''\s+-Verb\s+RunAs') -and
+    ($script:BatText -match '(?i)exit /b')
+}
+Test-Case "Launcher : appelle DexCheck.ps1 avec -NoElevate (pas de seconde elevation)" {
+    $invokes = ($script:BatText -split "\r?\n") | Where-Object { ($_ -match '(?i)powershell') -and ($_ -match '(?i)DexCheck\.ps1') }
+    ($invokes.Count -ge 1) -and (@($invokes | Where-Object { $_ -notmatch '(?i)-NoElevate' }).Count -eq 0)
+}
+Test-Case "Launcher : se termine par pause (la fenetre reste ouverte quoi qu'il arrive)" {
+    $script:BatText.TrimEnd() -match '(?is)pause\s*$'
+}
+
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==================================================================" -ForegroundColor Cyan
