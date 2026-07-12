@@ -144,16 +144,27 @@ Test-Case "CheatFlagWords ne contient AUCUN mot generique (sinon faux FLAG => fa
     $generic = @('cheat','loader','skript','hwid','cleaner','unlocker','menu')
     (@($script:CheatFlagWords | Where-Object { $generic -contains $_ }).Count -eq 0)
 }
-Test-Case "Get-CheatFlagPatterns : inclut aimbot + provider, exclut loader/cheat" {
+Test-Case "Get-CheatFlagPatterns : produits distinctifs (engineowning, extreme injector) FLAG ; categorie (aimbot) et generiques (loader/cheat) EXCLUS" {
     $f = Get-CheatFlagPatterns
-    ($f -contains 'aimbot') -and ($f -contains 'engineowning') -and (-not ($f -contains 'loader')) -and (-not ($f -contains 'cheat'))
+    ($f -contains 'engineowning') -and ($f -contains 'extreme injector') -and
+    (-not ($f -contains 'aimbot')) -and (-not ($f -contains 'loader')) -and (-not ($f -contains 'cheat'))
 }
-Test-Case "Partition : 'fabric_loader.exe' = generique seul (WARN), pas FLAG ; 'cod_aimbot.exe' = FLAG" {
+Test-Case "Noms de fichier : mots de categorie demus => aimbot/aimbot-remover/anti-aimbot/wallhack-detector/guide = PAS FLAG (innocent protege)" {
+    $f = Get-CheatFlagPatterns
+    (-not (Test-AnyWord 'aimbot.exe' $f)) -and (-not (Test-AnyWord 'aimbot-remover.exe' $f)) -and
+    (-not (Test-AnyWord 'anti-aimbot.exe' $f)) -and (-not (Test-AnyWord 'wallhack-detector.exe' $f)) -and
+    (-not (Test-AnyWord 'how-to-remove-aimbot.txt' $f))
+}
+Test-Case "MOAT KALMA : 'Extreme Injector' (produit distinctif) reste FLAG malgre la demotion du mot nu 'injector'" {
+    $f = Get-CheatFlagPatterns
+    (Test-AnyWord 'Extreme Injector v3.exe' $f) -and (Test-AnyWord 'ExtremeInjector.exe' $f) -and
+    (-not (Test-AnyWord 'injector.dll' $f))
+}
+Test-Case "Partition FLAG/WARN : 'fabric_loader' + 'cod_aimbot' = WARN-pas-FLAG (generique/categorie) ; 'engineowning_loader' = FLAG (produit)" {
     $flag = Get-CheatFlagPatterns
-    $loaderFlag = Test-AnyWord 'fabric_loader.exe' $flag
-    $loaderWarn = Test-AnyWord 'fabric_loader.exe' $script:CheatWarnWords
-    $aimbotFlag = Test-AnyWord 'cod_aimbot.exe' $flag
-    ((-not $loaderFlag) -and $loaderWarn -and $aimbotFlag)
+    (-not (Test-AnyWord 'fabric_loader.exe' $flag)) -and (Test-AnyWord 'fabric_loader.exe' $script:CheatWarnWords) -and
+    (-not (Test-AnyWord 'cod_aimbot.exe' $flag)) -and (Test-AnyWord 'cod_aimbot.exe' $script:CheatWarnWords) -and
+    (Test-AnyWord 'engineowning_loader.exe' $flag)
 }
 Test-Case "Cheat sheet : 'Programming Cheat Sheets' = generique seul (=> WARN), JAMAIS FLAG" {
     $flag = Get-CheatFlagPatterns
@@ -219,12 +230,13 @@ Test-Case "BenignPciVendors : invariant securite = Xilinx (10EE) n'est JAMAIS cl
 }
 
 # --- Fix faux-SUSPECT Prefetch : outil input dual-use => PAS FLAG, cheat distinctif => FLAG ---
-Test-Case "Prefetch : ds4windows/x360ce.pf = dual-use (WARN, pas FLAG) ; aimbot.pf = FLAG (fin du faux-SUSPECT)" {
+Test-Case "Prefetch : ds4windows/x360ce/aimbot.pf = dual-use ou categorie (WARN, pas FLAG) ; engineowning.pf = FLAG (produit)" {
     $flag = Get-CheatFlagPatterns
     $warn = @($script:CheatWarnWords); foreach($t in $script:InputTools){ $warn += $t.App }
     (-not (Test-AnyWord 'DS4WINDOWS.EXE-A1B2C3D4.pf' $flag)) -and (Test-AnyWord 'DS4WINDOWS.EXE-A1B2C3D4.pf' $warn) -and
     (-not (Test-AnyWord 'X360CE.EXE-11223344.pf' $flag)) -and (Test-AnyWord 'X360CE.EXE-11223344.pf' $warn) -and
-    (Test-AnyWord 'COD_AIMBOT.EXE-99887766.pf' $flag)
+    (-not (Test-AnyWord 'COD_AIMBOT.EXE-99887766.pf' $flag)) -and (Test-AnyWord 'COD_AIMBOT.EXE-99887766.pf' $warn) -and
+    (Test-AnyWord 'ENGINEOWNING.EXE-55667788.pf' $flag)
 }
 
 # --- Couche explication "trouve / prouve" (Get-MeaningLines + ProbeMeaning) ---
@@ -311,19 +323,19 @@ function New-ShimEntry {
 }
 $shimHdr = New-Object byte[] 48
 [BitConverter]::GetBytes([uint32]48).CopyTo($shimHdr, 0)   # offset du 1er enregistrement = 48
-$shimBlob = [byte[]](@($shimHdr) + @(New-ShimEntry 'C:\cheats\aimbot.exe') + @(New-ShimEntry 'C:\Windows\System32\cmd.exe'))
+$shimBlob = [byte[]](@($shimHdr) + @(New-ShimEntry 'C:\cheats\engineowning.exe') + @(New-ShimEntry 'C:\Windows\System32\cmd.exe'))
 $shimEntries = ConvertFrom-Shimcache $shimBlob   # List[object] : semantique List, pas de @()
 
 Test-Case "ConvertFrom-Shimcache : decode les 2 entrees du blob" {
     $shimEntries.Count -eq 2
 }
 Test-Case "ConvertFrom-Shimcache : chemins exacts (decodage UTF-16LE + avance par cachedEntryDataSize)" {
-    ($shimEntries[0].Path -eq 'C:\cheats\aimbot.exe') -and ($shimEntries[1].Path -eq 'C:\Windows\System32\cmd.exe')
+    ($shimEntries[0].Path -eq 'C:\cheats\engineowning.exe') -and ($shimEntries[1].Path -eq 'C:\Windows\System32\cmd.exe')
 }
 Test-Case "ConvertFrom-Shimcache : FILETIME decode en DateTime non nul" {
     ($shimEntries[0].Time -is [datetime]) -and ($shimEntries[0].Time.Year -gt 2000)
 }
-Test-Case "Shimcache : 'aimbot.exe' = FLAG distinctif, 'cmd.exe' = clean (parite FLAG/WARN avec les autres sondes)" {
+Test-Case "Shimcache : 'engineowning.exe' (produit distinctif) = FLAG, 'cmd.exe' = clean (parite FLAG/WARN)" {
     $flag = Get-CheatFlagPatterns
     (Test-AnyWord $shimEntries[0].Path $flag) -and -not (Test-AnyWord $shimEntries[1].Path $flag)
 }
@@ -347,7 +359,7 @@ Test-Case "ConvertFrom-Shimcache : entree finale TRONQUEE (blob a la limite de r
 # --- PCA Win11 (PcaAppLaunchDic) : parseur pur (chemin|timestamp UTC) ---
 $pcaLines = @(
     'C:\Program Files\Everything\Everything.exe|2022-12-28 16:06:24.212',
-    'C:\cheats\aimbot.exe|2025-04-23 14:43:43.215',
+    'C:\cheats\engineowning.exe|2025-04-23 14:43:43.215',
     'C:\temp\fabric_loader.exe|2025-04-23 14:43:43.215',
     '',
     'ligne-sans-pipe-ignoree',
@@ -365,7 +377,7 @@ Test-Case "ConvertFrom-PcaLaunchDic : timestamp invalide => Time null MAIS entre
     $w = $pcaEntries | Where-Object { $_.Path -eq 'D:\x\wallhack.exe' } | Select-Object -First 1
     ($null -ne $w) -and ($null -eq $w.Time)
 }
-Test-Case "PCA : 'aimbot' = FLAG, 'fabric_loader' = WARN-pas-FLAG, 'Everything' = clean (parite 2 niveaux)" {
+Test-Case "PCA : 'engineowning' (produit) = FLAG, 'fabric_loader' = WARN-pas-FLAG, 'Everything' = clean (parite 2 niveaux)" {
     $flag = Get-CheatFlagPatterns
     (Test-AnyWord $pcaEntries[1].Path $flag) -and
     (-not (Test-AnyWord $pcaEntries[2].Path $flag)) -and (Test-AnyWord $pcaEntries[2].Path $script:CheatWarnWords) -and

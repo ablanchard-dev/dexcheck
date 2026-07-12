@@ -120,17 +120,26 @@ $script:VirtualPadDrivers = @('vigembus','nefarius','virtual gamepad','vjoy','sc
 #  - CheatWarnWords = generiques / dual-use (mod-loader, "cheat sheet", plugin Skript, hwid,
 #                     cleaner, unlocker) seuls             -> WARN (sev1) : a verifier, pas un ban.
 # Match en frontiere de mot (Test-AnyWord / WordMatch C#), '_' '.' '-' = separateurs.
+# FLAG = uniquement des noms de PRODUIT/PROVIDER distinctifs (nom complet, peu ambigu). Les mots de
+# CATEGORIE (aimbot/wallhack/triggerbot/spoofer/injector...) ont ete DEMUS vers CheatWarnWords : ils
+# collisionnent avec des noms legitimes (aimbot-remover.exe, anti-aimbot, wallhack-detector, un
+# injector de modding) = faux FLAG sur un innocent. 'extreme injector' (outil master131, github.com/
+# master131/ExtremeInjector) est un nom de PRODUIT distinctif -> reste FLAG (portait le FLAG KALMA
+# via l'ancien mot 'injector' ; promu en entree propre pour ne pas evider le moat en demouvant 'injector').
 $script:CheatFlagWords = @(
     'engineowning','enginowning','phantomoverlay','lavicheats','interwebz','memesense',
     'fecurity','disconnect.gg','coldware','coldvision','hypervision','hypercheats',
-    'ring-1','susano','abstrakt','klarcheats','cobraaim','aimbot','wallhack','triggerbot',
-    'unlockall','unlock_all','spoofer','hwidspoofer','cronus','xim',
-    'bleachbit','privazer','injector','skript.gg'
+    'ring-1','susano','abstrakt','klarcheats','cobraaim','cronus','xim',
+    'bleachbit','privazer','skript.gg','extreme injector','extremeinjector','extreme_injector'
 )
 # reWASD = outil de remap LEGITIME (dual-use) -> WARN, jamais FLAG (decision Alex 03/07 : un mec
 # clean ne doit pas ressortir SUSPECT ; seul un VRAI cheat FLAG). Cronus/XIM restent FLAG (hardware
 # d'anti-recoil = vraie triche, sev2 dans InputTools).
-$script:CheatWarnWords = @('cheat','loader','skript','hwid','cleaner','unlocker','rewasd')
+# Mots generiques/dual-use ET mots de CATEGORIE (aimbot/wallhack...) : WARN, jamais FLAG seul. Un nom
+# de fichier au mot de categorie est surfacE au modo (DeleteSuspectPatterns = union) mais ne condamne
+# pas ; seul un nom de PRODUIT distinctif escalade en FLAG. Coherent avec la sonde historique PowerShell.
+$script:CheatWarnWords = @('cheat','loader','skript','hwid','cleaner','unlocker','rewasd',
+    'aimbot','wallhack','triggerbot','unlockall','unlock_all','spoofer','hwidspoofer','injector')
 # Union (mots + patterns providers distinctifs) = scan grossier "suspect tout court ?" cote C#.
 $script:DeleteSuspectPatterns = @($script:CheatFlagWords + $script:CheatWarnWords)
 foreach ($c in $script:CheatSoftware) { if (-not $c.GenericName) { $script:DeleteSuspectPatterns += $c.Patterns } }
