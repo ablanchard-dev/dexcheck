@@ -2184,6 +2184,16 @@ function Get-Verdict {
     $flag = @($results | Where-Object { $_.Status -eq 'FLAG' })
     $warn = @($results | Where-Object { $_.Status -eq 'WARN' })
     if ($crit.Count -gt 0) { return 'ROUGE' }
+    # Execution d'un cheat CONFIRMEE (les FLAG anti-wipe sont distinctifs-only depuis la reclassif des
+    # mots de categorie) :
+    #  - vue sur >=2 artefacts anti-wipe INDEPENDANTS (prefetch/execution/shimcache/PCA/USN-supprime) =
+    #    concordance = execution reelle, pas un residu isole -> ROUGE.
+    #  - OU vue sur >=1 artefact + un nettoyage COORDONNE (wipe/logs effaces/Defender coupe + corrob.) =
+    #    "il a tourne puis efface ses traces" -> ROUGE.
+    # Un FLAG anti-wipe SEUL, ou un device (Cronus) seul, reste SUSPECT : un signal isole ne condamne pas.
+    $antiWipe = @($flag | Where-Object { @('DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH') -contains [string]$_.Id })
+    if ($antiWipe.Count -ge 2) { return 'ROUGE' }
+    if ($antiWipe.Count -ge 1 -and (Get-EvasionProfile $results).Escalate) { return 'ROUGE' }
     if ($flag.Count -gt 0) { return 'SUSPECT' }
     if ($warn.Count -gt 0) {
         # Un profil d'evasion COORDONNE (signal fort + corroboration) monte A VERIFIER -> SUSPECT.

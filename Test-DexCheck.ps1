@@ -270,6 +270,33 @@ Test-Case "Get-VerdictReasoning : 1 seul artefact anti-wipe => pas de ligne 'CON
     $rs = @((New-ProbeResult -Id 'EXEC' -Name e -Status 'FLAG' -Severity 2))
     -not (((Get-VerdictReasoning $rs) -join ' ') -match 'CONFIRMEE')
 }
+Test-Case "Get-Verdict UPGRADE : >=2 FLAG anti-wipe (cheat distinctif corrobore) => ROUGE (re-val KALMA : Extreme Injector sur 4 artefacts)" {
+    $kalma = @(
+        (New-ProbeResult -Id 'EXEC'      -Name e -Status 'FLAG' -Severity 2),
+        (New-ProbeResult -Id 'SHIMCACHE' -Name s -Status 'FLAG' -Severity 2),
+        (New-ProbeResult -Id 'PCA'       -Name p -Status 'FLAG' -Severity 2),
+        (New-ProbeResult -Id 'DELFILES'  -Name d -Status 'FLAG' -Severity 2)
+    )
+    (Get-Verdict $kalma) -eq 'ROUGE'
+}
+Test-Case "Get-Verdict : 1 SEUL FLAG anti-wipe, sans nettoyage => SUSPECT (pas de sur-escalade, innocent isole protege)" {
+    (Get-Verdict @((New-ProbeResult -Id 'EXEC' -Name e -Status 'FLAG' -Severity 2))) -eq 'SUSPECT'
+}
+Test-Case "Get-Verdict : 1 FLAG anti-wipe + nettoyage COORDONNE (Defender coupe + USN off) => ROUGE (a tourne puis efface ses traces)" {
+    $rs = @(
+        (New-ProbeResult -Id 'EXEC'     -Name e -Status 'FLAG' -Severity 2),
+        (New-ProbeResult -Id 'DEFENDER' -Name d -Status 'WARN' -Severity 1),
+        (New-ProbeResult -Id 'USN'      -Name u -Status 'WARN' -Severity 1)
+    )
+    (Get-Verdict $rs) -eq 'ROUGE'
+}
+Test-Case "Get-Verdict : un device (Cronus, FLAG non-anti-wipe) SEUL => SUSPECT jamais ROUGE (presence != execution corroboree)" {
+    (Get-Verdict @((New-ProbeResult -Id 'INPUT' -Name i -Status 'FLAG' -Severity 2))) -eq 'SUSPECT'
+}
+Test-Case "Get-Verdict : provider connu (sev 3) => ROUGE inchange ; aucun flag => CLEAN (garde-fous)" {
+    ((Get-Verdict @((New-ProbeResult -Id 'CHEATS' -Name c -Status 'FLAG' -Severity 3))) -eq 'ROUGE') -and
+    ((Get-Verdict @((New-ProbeResult -Id 'PROC' -Name p -Status 'OK' -Severity 0))) -eq 'CLEAN')
+}
 Test-Case "ProbeMeaning : chaque sonde WARN/FLAG-able a une entree Shows+ProvesNot non vide" {
     $ids = @('IDENT','WINAGE','USN','DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH','PROC','PERSIST','EVTLOG','ANTIFOR','BROWSER','DNS','HARDWARE','DMAPCI','SECBOOT','NET','CHEATS','INPUT','VM','DEFENDER','KDRV','INJECT')
     $missing = @($ids | Where-Object { -not $script:ProbeMeaning.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($script:ProbeMeaning[$_].Shows) -or [string]::IsNullOrWhiteSpace($script:ProbeMeaning[$_].ProvesNot) })
