@@ -17,6 +17,12 @@ runs it on a screen-share while a moderator watches the output scroll by.
 
 Guide joueur détaillé (FR) : `LANCER-LE-CHECK.txt`. Vérif visuelle du setup (DMA / 2e PC) : `CHECK-CONSOLE-SETUP.txt`.
 
+**Si le double-clic ne marche pas** — ouvre **PowerShell** (n'importe où, pas besoin d'être dans le dossier) et colle cette ligne. Elle retrouve le script où qu'il ait été extrait, le débloque et le lance :
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command '$p=(Get-ChildItem $HOME -Filter DexCheck.ps1 -Recurse -File -EA 0 | Select-Object -First 1).FullName; if (-not $p) { Write-Host ''DexCheck.ps1 introuvable : extrais d abord le ZIP.'' -Fore Red; exit 1 }; Get-ChildItem (Split-Path $p) -Recurse | Unblock-File; & $p'
+```
+
 ## Quickstart 🇬🇧 (Windows) — no command line to type
 
 1. **Download** — green **Code** button → **Download ZIP**.
@@ -25,6 +31,12 @@ Guide joueur détaillé (FR) : `LANCER-LE-CHECK.txt`. Vérif visuelle du setup (
 4. **Run** — double-click **`LANCER-LE-CHECK.bat`**, type the moderator's word if given (else just Enter), accept the UAC prompt. A `.txt` + `.html` report lands on the Desktop with a SHA-256 fingerprint.
 
 Player guide (French): `LANCER-LE-CHECK.txt`. Visual setup check (DMA / second PC): `CHECK-CONSOLE-SETUP.txt`.
+
+**If the double-click fails** — open **PowerShell** (from anywhere, no need to be in the folder) and paste this line. It locates the script wherever it was extracted, unblocks it and runs it:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command '$p=(Get-ChildItem $HOME -Filter DexCheck.ps1 -Recurse -File -EA 0 | Select-Object -First 1).FullName; if (-not $p) { Write-Host ''DexCheck.ps1 not found: extract the ZIP first.'' -Fore Red; exit 1 }; Get-ChildItem (Split-Path $p) -Recurse | Unblock-File; & $p'
+```
 
 ## What it checks
 
