@@ -2765,6 +2765,82 @@ table{border-collapse:collapse;width:100%;margin-top:16px}td{border-bottom:1px s
     return [pscustomobject]@{ Txt=$txt; Html=$html; Verdict=$verdict }
 }
 
+function Get-FreshnessWall {
+    # Pur -> testable. Le "mur de fraicheur" : sur un Windows VIEUX, si plusieurs sources a BASELINE
+    # LONGUE demarrent TOUTES bien apres l'install ET de facon SYNCHRONISEE, c'est le pattern d'un
+    # nettoyage synchronise (tout commence il y a 3 jours sur un Windows de 2 ans). PRESENTATION
+    # SEULE : ne touche jamais le verdict (la sonde TIMELINE n'emet que OK/INFO, Id absent de
+    # Get-EvasionProfile). Garde-fous anti-faux-SUSPECT : Windows recent -> pas de mur (reinstall =
+    # tout jeune, normal) ; <2 sources utilisables -> pas de mur (un point n'est pas un mur) ; une
+    # source qui remonte pres de l'install -> pas de mur (vieille histoire presente). Les sources en
+    # FENETRE GLISSANTE (USN, Prefetch sature, Shimcache...) sont exclues par l'appelant (Usable=$false).
+    param([datetime]$InstallDate, [datetime]$Now, $Sources)
+    # $Sources = liste de @{ Name; Oldest([datetime] ou $null); Usable([bool]) }
+    $installAgeDays = ($Now - $InstallDate).TotalDays
+    $res = [ordered]@{ Wall=$false; Reason=''; InstallAgeDays=[int]$installAgeDays; WindowStart=$null; WindowEnd=$null; Used=@() }
+    if ($installAgeDays -lt 180) { $res.Reason = "Windows recent (<180j) : timeline non significative (une reinstall rend tout jeune, c'est normal)"; return [pscustomobject]$res }
+    $usable = @($Sources | Where-Object { $_ -and $_.Usable -and $_.Oldest })
+    if ($usable.Count -lt 2) { $res.Reason = "moins de 2 sources a baseline longue utilisables : pas de mur (un point n'est pas un mur)"; return [pscustomobject]$res }
+    # TOUTES les sources utilisables doivent demarrer >30j apres l'install ; si une seule remonte
+    # pres de l'install, il y a une vraie vieille histoire -> pas un mur.
+    $late = @($usable | Where-Object { ((($_.Oldest) - $InstallDate)).TotalDays -gt 30 })
+    if ($late.Count -ne $usable.Count) { $res.Reason = "au moins une source remonte pres de l'install (vieille histoire presente) : pas de mur"; return [pscustomobject]$res }
+    $dates = @($usable | ForEach-Object { $_.Oldest } | Sort-Object)
+    $span = ($dates[-1] - $dates[0]).TotalDays
+    $res.Used = @($usable | ForEach-Object { $_.Name })
+    if ($span -le 14) {
+        $res.Wall = $true; $res.WindowStart = $dates[0]; $res.WindowEnd = $dates[-1]
+        $res.Reason = "pattern compatible avec un nettoyage SYNCHRONISE : les traces de $($usable.Count) sources demarrent dans une fenetre de $([int]$span)j, bien apres un Windows de $([int]$installAgeDays)j - a recouper, NE CONDAMNE PAS seul"
+    } else {
+        $res.Reason = "les sources demarrent tard mais DESYNCHRONISEES (etalees sur $([int]$span)j) : pas un mur (accidents independants, pas un wipe unique)"
+    }
+    return [pscustomobject]$res
+}
+
+function Probe-Timeline {
+    $details = New-Object System.Collections.Generic.List[string]
+    $now = Get-Date
+    $os = $null
+    try { $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop } catch {
+        return (New-ProbeResult -Id 'TIMELINE' -Name 'Mur de fraicheur (timeline)' -Status 'NA' -Severity 0 -Summary "Date d'installation Windows non lisible" -Details $details)
+    }
+    $install = $os.InstallDate
+    $sources = New-Object System.Collections.Generic.List[object]
+    # Source 1 : journal System (plus vieil event). Utilisable dans le CALCUL seulement si pas plein
+    # (fill<50%) : un log plein = rollover naturel = "recent" ne prouve rien.
+    try {
+        $oldestEvt = Get-WinEvent -LogName System -Oldest -MaxEvents 1 -ErrorAction SilentlyContinue
+        if ($null -ne $oldestEvt) {
+            $fill = $null
+            try { $li = Get-WinEvent -ListLog System -ErrorAction SilentlyContinue; if ($null -ne $li -and $li.MaximumSizeInBytes -gt 0) { $fill = $li.FileSize / [double]$li.MaximumSizeInBytes } } catch { }
+            $evtUsable = ($null -ne $fill -and $fill -lt 0.5)
+            $note = if ($evtUsable) { 'baseline longue' } elseif ($null -ne $fill) { 'log plein (rollover) - hors calcul' } else { 'remplissage inconnu - hors calcul' }
+            $sources.Add([pscustomobject]@{ Name='Journal System'; Oldest=$oldestEvt.TimeCreated; Usable=$evtUsable; Note=$note })
+        }
+    } catch { }
+    # Source 2 : Prefetch (plus vieux .pf). Utilisable seulement si la fenetre n'est pas saturee
+    # (<900 fichiers) : a 1024 la rotation efface les vieux = "recent" normal.
+    try {
+        $pf = @(Get-ChildItem "$script:SysDrive\Windows\Prefetch" -Filter *.pf -File -ErrorAction SilentlyContinue)
+        if ($pf.Count -gt 0) {
+            $oldestPf = ($pf | Sort-Object CreationTime | Select-Object -First 1).CreationTime
+            $pfUsable = ($pf.Count -lt 900)
+            $note = if ($pfUsable) { 'baseline longue' } else { 'fenetre saturee (>=900 .pf) - hors calcul' }
+            $sources.Add([pscustomobject]@{ Name='Prefetch'; Oldest=$oldestPf; Usable=$pfUsable; Note=$note })
+        }
+    } catch { }
+    $details.Add("Date d'installation Windows : $install (reference).")
+    foreach ($s in $sources) { $details.Add(("  {0} : plus vieil artefact {1} ({2})" -f $s.Name, $s.Oldest, $s.Note)) }
+    $details.Add("Sources en FENETRE GLISSANTE (USN/Shimcache/PCA/navigateur/DNS) exclues du calcul : leur plus vieil artefact est recent par nature, ca ne prouve aucun nettoyage.")
+    $wall = Get-FreshnessWall -InstallDate $install -Now $now -Sources $sources
+    if ($wall.Wall) {
+        $details.Add("Fenetre de nettoyage estimee : $($wall.WindowStart) -> $($wall.WindowEnd).")
+        New-ProbeResult -Id 'TIMELINE' -Name 'Mur de fraicheur (timeline)' -Status 'INFO' -Severity 0 -Summary ("MUR DE FRAICHEUR : " + $wall.Reason) -Details $details
+    } else {
+        New-ProbeResult -Id 'TIMELINE' -Name 'Mur de fraicheur (timeline)' -Status 'INFO' -Severity 0 -Summary ("Pas de mur de fraicheur - " + $wall.Reason) -Details $details
+    }
+}
+
 # ============================================================================
 # MAIN
 # ============================================================================
@@ -2827,6 +2903,7 @@ function Invoke-DexCheck {
         @{ Name='Hardware / DMA / capture';      Fn=${function:Probe-Hardware} }
         @{ Name='Cartes PCIe / DMA';             Fn=${function:Probe-DmaPci} }
         @{ Name='Posture de protection DMA (VBS/IOMMU)'; Fn=${function:Probe-DmaPosture} }
+        @{ Name='Mur de fraicheur (timeline)';    Fn=${function:Probe-Timeline} }
         @{ Name='Securite systeme';              Fn=${function:Probe-SystemSecurity} }
         @{ Name='Exclusions Windows Defender';   Fn=${function:Probe-DefenderExclusions} }
         @{ Name='Drivers kernel (BYOVD)';        Fn=${function:Probe-KernelDrivers} }

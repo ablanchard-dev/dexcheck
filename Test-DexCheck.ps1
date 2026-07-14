@@ -852,6 +852,50 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "Mur de fraicheur VRAI-POSITIF : Windows vieux (700j) + 2 sources synchronisees demarrant tard => MUR detecte" {
+    $now = Get-Date; $inst = $now.AddDays(-700)
+    $srcs = @([pscustomobject]@{Name='Journal System';Oldest=$now.AddDays(-3);Usable=$true},
+              [pscustomobject]@{Name='Prefetch';Oldest=$now.AddDays(-8);Usable=$true})
+    $w = Get-FreshnessWall $inst $now $srcs
+    $w.Wall -and ($w.Used.Count -eq 2) -and ($null -ne $w.WindowStart)
+}
+Test-Case "Mur GARDE-FOU reinstall : Windows recent (10j) => PAS de mur (tout jeune = normal, jamais un innocent accuse)" {
+    $now = Get-Date; $inst = $now.AddDays(-10)
+    $srcs = @([pscustomobject]@{Name='a';Oldest=$now.AddDays(-3);Usable=$true},[pscustomobject]@{Name='b';Oldest=$now.AddDays(-5);Usable=$true})
+    $w = Get-FreshnessWall $inst $now $srcs
+    (-not $w.Wall) -and ($w.Reason -match '(?i)recent')
+}
+Test-Case "Mur GARDE-FOU : une seule source utilisable => PAS de mur (un point n'est pas un mur)" {
+    $now = Get-Date; $inst = $now.AddDays(-700)
+    $srcs = @([pscustomobject]@{Name='a';Oldest=$now.AddDays(-3);Usable=$true},[pscustomobject]@{Name='b';Oldest=$now.AddDays(-3);Usable=$false})
+    (-not (Get-FreshnessWall $inst $now $srcs).Wall)
+}
+Test-Case "Mur GARDE-FOU : sources DESYNCHRONISEES (etalees sur des mois) => PAS de mur (accidents independants)" {
+    $now = Get-Date; $inst = $now.AddDays(-700)
+    $srcs = @([pscustomobject]@{Name='a';Oldest=$now.AddDays(-3);Usable=$true},[pscustomobject]@{Name='b';Oldest=$now.AddDays(-300);Usable=$true})
+    (-not (Get-FreshnessWall $inst $now $srcs).Wall)
+}
+Test-Case "Mur GARDE-FOU : une source remonte pres de l'install (vieille histoire presente) => PAS de mur" {
+    $now = Get-Date; $inst = $now.AddDays(-700)
+    $srcs = @([pscustomobject]@{Name='a';Oldest=$now.AddDays(-3);Usable=$true},[pscustomobject]@{Name='b';Oldest=$now.AddDays(-690);Usable=$true})
+    (-not (Get-FreshnessWall $inst $now $srcs).Wall)
+}
+Test-Case "Mur NON-REGRESSION (moat) : ajouter la sonde TIMELINE (INFO) ne change JAMAIS le verdict d'un profil debloat gaming complet" {
+    $base = @(
+        [pscustomobject]@{Id='USN';Status='WARN';Severity=1},
+        [pscustomobject]@{Id='PREFETCH';Status='WARN';Severity=1},
+        [pscustomobject]@{Id='WINAGE';Status='WARN';Severity=1},
+        [pscustomobject]@{Id='ANTIFOR';Status='WARN';Severity=1}
+    )
+    $timeline = [pscustomobject]@{Id='TIMELINE';Status='INFO';Severity=0}
+    (Get-Verdict $base) -eq (Get-Verdict ($base + $timeline))
+}
+Test-Case "Sonde Mur de fraicheur presente et TOUJOURS INFO/NA (jamais WARN/FLAG - presentation seule, moat intact)" {
+    $p = $statuses.GetEnumerator() | Where-Object { $_.Key -like '*Mur de fraicheur*' } | Select-Object -First 1
+    if (-not $p) { Write-Host '      (sonde Mur de fraicheur absente)' -ForegroundColor DarkYellow; return $false }
+    ($p.Value -in @('INFO','NA'))
+}
+
 Test-Case "Posture DMA : INFO strict - VBS+DMA dispo => 'fermee', rien => 'moins genee', jamais une accusation" {
     ((Get-DmaPostureSummary 2 $true) -match '(?i)fermee') -and
     ((Get-DmaPostureSummary 0 $false) -match '(?i)moins genee') -and
