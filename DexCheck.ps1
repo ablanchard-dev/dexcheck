@@ -591,6 +591,7 @@ $script:ProbeMeaning = @{
     GPC       = @{ Shows="un fichier .gpc (script de l'ecosysteme Cronus) est present"; ProvesNot="une extension .gpc seule peut etre une collision ; sans le contenu GPC ce n'est pas confirme"; ShowsFlag="un script GPC CONFIRME par son contenu (set_val/combo/event_press) = macro anti-recoil ecrite pour un boitier Cronus Zen/Max"; ProvesNotFlag="le script prouve la preparation d'un anti-recoil Cronus, pas son usage en match ; le boitier lui-meme se voit a l'USB / au check visuel" }
     WER       = @{ Shows="un programme a plante et Windows a garde son nom (WER)"; ProvesNot="un plantage n'est pas un usage en match ; tout plante sous Windows et un nom generique reste dual-use"; ShowsFlag="un cheat au nom DISTINCTIF a plante sur cette machine (WER l'a enregistre) = il tournait au moment du crash, meme efface depuis"; ProvesNotFlag="le crash prouve l'EXECUTION du cheat, pas le moment d'usage en partie ; le binaire efface n'est plus analysable - la trace WER, elle, a survecu" }
     MRU       = @{ Shows="un fichier a ete ouvert recemment (RecentDocs) ou une commande tapee dans Executer (RunMRU)"; ProvesNot="ouvrir ou taper un nom n'est pas jouer avec ; un nom generique reste dual-use"; ShowsFlag="un fichier/commande au nom de cheat DISTINCTIF a ete ouvert recemment ou tape dans Executer (trace HKCU qui survit a la suppression du fichier)"; ProvesNotFlag="ca prouve un acces recent au fichier nomme, pas un usage en match ; a confirmer par la VOD" }
+    MOTW      = @{ Shows="un fichier present a ete telecharge depuis un domaine de cheat (URL gardee par Windows)"; ProvesNot="telecharger n'est pas executer en match ; mais la provenance + le fichier present est un signal fort"; ShowsFlag="un fichier present a ete telecharge DEPUIS un domaine/provider de cheat connu (Mark-of-the-Web) - cette provenance survit a l'effacement de l'historique du navigateur, le joueur ne peut pas l'effacer en vidant Chrome"; ProvesNotFlag="la provenance prouve le telechargement du cheat depuis sa source, pas son usage en match ; a confirmer par la VOD" }
 }
 
 function Get-MeaningLines {
@@ -2098,6 +2099,70 @@ function Probe-RecentActivity {
     }
 }
 
+function Get-MotwCheatHits {
+    # Pur -> testable. Recoit des couples fichier/URL-de-provenance (Mark-of-the-Web, flux NTFS
+    # Zone.Identifier). L'URL de telechargement est collee au fichier par Windows et SURVIT a
+    # l'effacement de l'historique du navigateur : un joueur qui wipe Chrome la laisse derriere lui.
+    # Un fichier telecharge DEPUIS un domaine de cheat connu = provenance distinctive + le binaire
+    # est present. Domaine de cheat OU token distinctif dans l'URL/le nom => FLAG.
+    param($Entries, [string[]]$Domains, [string[]]$FlagPatterns)
+    $hits = New-Object System.Collections.Generic.List[object]
+    if ($null -eq $Entries) { return ,$hits }
+    foreach ($e in $Entries) {
+        if ($null -eq $e) { continue }
+        $url = [string]$e.Url; $file = [string]$e.File
+        if ([string]::IsNullOrEmpty($url)) { continue }
+        $why = $null
+        if (Test-AnyPattern $url $Domains) { $why = "telecharge depuis un domaine de cheat" }
+        elseif (Test-AnyWord ($url + ' ' + $file) $FlagPatterns) { $why = "provenance/nom de cheat distinctif" }
+        if ($why) { $hits.Add([pscustomobject]@{ File=$file; Url=$url; Why=$why }) }
+    }
+    return ,$hits
+}
+
+function Probe-DownloadProvenance {
+    $details = New-Object System.Collections.Generic.List[string]
+    $domains = @(); foreach ($c in $script:CheatSoftware) { if ($c.Domains) { $domains += $c.Domains } }
+    $entries = New-Object System.Collections.Generic.List[object]
+    $roots = @("$env:USERPROFILE\Downloads","$env:USERPROFILE\Desktop","$env:USERPROFILE\Documents","$env:TEMP") | Where-Object { $_ } | Select-Object -Unique
+    $exts = @('.exe','.dll','.scr','.zip','.rar','.7z','.ps1','.bat','.msi')
+    # Cap PAR RACINE (pas global) pour qu'aucune zone ne soit affamee par une autre + on lit les
+    # ADS des fichiers les PLUS RECENTS d'abord (un cheat telecharge pour la session est recent).
+    # Lire le flux Zone.Identifier de chaque fichier coute ~2 ms => on borne pour rester rapide.
+    $perRootCap = 1200; $scanned = 0; $dropped = 0
+    foreach ($r in $roots) {
+        if (-not (Test-Path $r)) { continue }
+        try {
+            # -Depth 2 (pas -Recurse total) : un fichier telecharge est a la racine ou 1-2 niveaux
+            # sous Downloads, jamais enterre profond. Evite l'enumeration lente d'arbres OneDrive/Temp
+            # (mesure : -Recurse = 20-50 s, -Depth 2 = ~0 s).
+            $cands = @(Get-ChildItem -LiteralPath $r -Depth 2 -File -Force -ErrorAction SilentlyContinue | Where-Object { $exts -contains $_.Extension.ToLower() })
+            if ($cands.Count -gt $perRootCap) { $dropped += ($cands.Count - $perRootCap) }
+            $cands = @($cands | Sort-Object LastWriteTime -Descending | Select-Object -First $perRootCap)
+            foreach ($f in $cands) {
+                $scanned++
+                $zi = ''
+                try { $zi = (Get-Content -LiteralPath $f.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue) -join "`n" } catch { }
+                if (-not $zi) { continue }
+                $url = ''
+                foreach ($ln in ($zi -split "`n")) {
+                    if ($ln -match '^(?:HostUrl|ReferrerUrl)=(.+)$') { $url = $Matches[1].Trim(); if ($ln -match '^HostUrl=') { break } }
+                }
+                if ($url) { $entries.Add([pscustomobject]@{ File=$f.FullName; Url=$url }) }
+            }
+        } catch { }
+    }
+    $details.Add("$($entries.Count) fichier(s) telecharge(s) avec une URL de provenance (Mark-of-the-Web) sur $scanned scanne(s) - l'URL survit a l'effacement de l'historique du navigateur.")
+    if ($dropped -gt 0) { $details.Add("$dropped fichier(s) plus anciens non scannes (limite $perRootCap/zone, les plus recents d'abord) - non couverts, a garder en tete.") }
+    $hits = Get-MotwCheatHits -Entries $entries -Domains $domains -FlagPatterns (Get-CheatFlagPatterns)
+    if ($hits.Count -gt 0) {
+        foreach ($h in $hits) { $details.Add("PROVENANCE CHEAT ($($h.Why)) : $($h.File)  <=  $($h.Url)") }
+        New-ProbeResult -Id 'MOTW' -Name 'Provenance des telechargements (Mark-of-the-Web)' -Status 'FLAG' -Severity 2 -Summary "$($hits.Count) fichier(s) telecharge(s) depuis un domaine/provider de cheat (provenance survit au wipe navigateur)" -Details $details
+    } else {
+        New-ProbeResult -Id 'MOTW' -Name 'Provenance des telechargements (Mark-of-the-Web)' -Status 'OK' -Severity 0 -Summary "Aucun fichier telecharge depuis un domaine de cheat connu" -Details $details
+    }
+}
+
 function Get-VmAssessment {
     # Logique PURE testable : la machine du check doit etre la VRAIE machine de jeu.
     # Tourner le check dans une VM clean pendant qu'on joue sur l'hote = evasion screenshare.
@@ -2743,6 +2808,7 @@ function Invoke-DexCheck {
         @{ Name='Scripts anti-recoil Cronus (.gpc)'; Fn=${function:Probe-GpcScripts} }
         @{ Name="Rapports d'erreur (WER, anti-wipe)"; Fn=${function:Probe-WerCrashes} }
         @{ Name='Fichiers recents / Executer (RecentDocs, RunMRU)'; Fn=${function:Probe-RecentActivity} }
+        @{ Name='Provenance des telechargements (Mark-of-the-Web)'; Fn=${function:Probe-DownloadProvenance} }
     )
     if ($Deep) {
         $probes += @{ Name='[-Deep] Dump USN suppressions (CSV)'; Fn=${function:Probe-DeepUsnDump} }

@@ -852,6 +852,26 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "MOTW VRAI-POSITIF end-to-end : un fichier avec Zone.Identifier pointant un domaine de cheat => FLAG (survit au wipe navigateur)" {
+    $bait = Join-Path $env:TEMP ("DexMotwBait_{0}.exe" -f (Get-Random))
+    Set-Content -LiteralPath $bait -Value 'MZ bait' -Encoding Ascii
+    Set-Content -LiteralPath $bait -Stream 'Zone.Identifier' -Value "[ZoneTransfer]`r`nZoneId=3`r`nHostUrl=https://engineowning.to/download/loader.exe" -Encoding Ascii
+    try {
+        $r = Probe-DownloadProvenance
+        ($r.Status -eq 'FLAG') -and (@($r.Details | Where-Object { $_ -like '*DexMotwBait*' }).Count -ge 1)
+    } finally { Remove-Item -LiteralPath $bait -Force -ErrorAction SilentlyContinue }
+}
+Test-Case "MOTW : un telechargement banal (github, domaine normal) => aucun hit (pas de faux positif)" {
+    $e = @([pscustomobject]@{ File='C:\Users\x\Downloads\app.zip'; Url='https://github.com/user/repo/releases/app.zip' })
+    $d = @(); foreach($c in $script:CheatSoftware){ if($c.Domains){ $d += $c.Domains } }
+    ((Get-MotwCheatHits $e $d (Get-CheatFlagPatterns)).Count -eq 0) -and
+    ((Get-MotwCheatHits $null $d (Get-CheatFlagPatterns)).Count -eq 0)
+}
+Test-Case "Sonde Provenance MOTW presente dans le rapport et jamais FLAG sur ce PC (pas de faux SUSPECT)" {
+    (@($statuses.Keys | Where-Object { $_ -like '*Mark-of-the-Web*' -or $_ -like '*Provenance*' }).Count -ge 1) -and
+    (@($statuses.GetEnumerator() | Where-Object { ($_.Key -like '*Mark-of-the-Web*' -or $_.Key -like '*Provenance*') -and $_.Value -eq 'FLAG' }).Count -eq 0)
+}
+
 Test-Case "RecentDocs : le parseur binaire extrait bien le nom UTF-16 en tete (engineowning.exe)" {
     $s = 'engineowning.exe'
     $bytes = [System.Text.Encoding]::Unicode.GetBytes($s) + @([byte]0,[byte]0) + @([byte]1,[byte]2,[byte]3,[byte]4)
