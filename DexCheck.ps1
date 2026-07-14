@@ -587,6 +587,7 @@ $script:ProbeMeaning = @{
     DRVINST   = @{ Shows="un driver/service abusable (BYOVD) a ete installe, avec sa date - complete KDRV qui ne voit que les drivers charges maintenant"; ProvesNot="beaucoup de drivers legitimes s'installent en service (Afterburner/HWiNFO/anti-triche) ; la date d'install seule ne prouve pas un usage cheat"; ShowsFlag="un service/driver au nom de cheat DISTINCTIF a ete installe a telle date (trace SCM qui survit a la suppression du binaire)"; ProvesNotFlag="le nom distinctif + la date d'install sont solides ; reste a confirmer l'usage en match (VOD)" }
     INJECT    = @{ Shows="un point d'injection DLL (AppInit/AppCert/IFEO) est positionne = un overlay/cheat peut se charger dans le jeu"; ProvesNot="quelques outils legitimes en posent - valeur non vide = a verifier, pas a bannir" }
     USBHIST   = @{ Shows="un boitier anti-recoil / device d'injection a deja ete branche sur cette machine (historique USB), meme s'il est debranche maintenant"; ProvesNot="un branchement passe n'est pas un usage en match ; PC d'occasion, frere/coloc, revendu - le modo fait expliquer le device"; ShowsFlag="un boitier anti-recoil au descripteur DISTINCTIF (Cronus/XIM/Titan/ReaSnow) a ete physiquement branche sur cette machine (descripteur firmware, non renommable) ; il a pu etre debranche juste avant le check"; ProvesNotFlag="le descripteur prouve le branchement PHYSIQUE, pas l'usage en match ; un PC d'occasion ou prete peut porter cette trace - le modo demande au joueur d'expliquer ce device, il ne l'accuse pas" }
+    DEFTHREAT = @{ Shows="Windows Defender a deja detecte / mis en quarantaine une menace sur cette machine (trace qui survit a la suppression du binaire)"; ProvesNot="Defender flagge aussi cracks, keygens et trainers de jeux SOLO ; l'historique se purge tout seul (~30 j) donc un historique vide ne prouve rien"; ShowsFlag="Defender a detecte un cheat au nom DISTINCTIF connu (engineowning, etc.) sur cette machine - detection signee Microsoft qui survit a la suppression du binaire"; ProvesNotFlag="la detection prouve la presence passee du cheat sur la machine, pas son usage en match ; reste a confirmer par la VOD" }
 }
 
 function Get-MeaningLines {
@@ -2006,6 +2007,72 @@ function Probe-DefenderExclusions {
     New-ProbeResult -Id 'DEFENDER' -Name 'Exclusions Windows Defender' -Status $a.Status -Severity $a.Severity -Summary $a.Summary -Details $details
 }
 
+function Get-DefenderThreatAssessment {
+    # Pur -> testable. Recoit les menaces DEJA detectees par Defender (nom Microsoft + chemin) et
+    # les classe. Le verdict est SIGNE MICROSOFT, pas par nous : c'est sa force. Survit a la
+    # suppression du binaire (l'historique Defender reste). Chaque menace = @{ Name; Path }.
+    # Loi "prouver pas nommer" : FLAG seulement si un token de cheat DISTINCTIF (notre liste)
+    # apparait dans le nom/chemin Microsoft = les deux sources concordent. Categorie HackTool/
+    # GameHack generique (Cheat Engine, trainer de jeu SOLO) = WARN, jamais FLAG (piege FP de Fable).
+    param($Threats, [string[]]$FlagPatterns)
+    $flag = New-Object System.Collections.Generic.List[string]
+    $warn = New-Object System.Collections.Generic.List[string]
+    $info = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Threats) { return @{ Status='OK'; Severity=0; Flag=$flag; Warn=$warn; Info=$info } }
+    $strongCat = @('hacktool','gamehack','game hack')
+    foreach ($th in $Threats) {
+        if ($null -eq $th) { continue }
+        $name = [string]$th.Name; $path = [string]$th.Path
+        $hay = ($name + ' ' + $path).Trim()
+        if ([string]::IsNullOrEmpty($hay)) { continue }
+        if (Test-AnyWord $hay $FlagPatterns) {
+            $flag.Add($hay)                       # cheat NOMME connu detecte par Microsoft => FLAG
+        } elseif (Test-AnyPattern $name $strongCat) {
+            $warn.Add($hay)                       # Microsoft dit "outil de triche" mais generique => WARN (modo juge)
+        } else {
+            $info.Add($hay)                       # Defender a chope qqch (PUA/malware) - pas forcement un cheat de jeu
+        }
+    }
+    $status = if ($flag.Count -gt 0) { 'FLAG' } elseif ($warn.Count -gt 0) { 'WARN' } elseif ($info.Count -gt 0) { 'INFO' } else { 'OK' }
+    $sev    = if ($flag.Count -gt 0) { 2 } elseif ($warn.Count -gt 0) { 1 } else { 0 }
+    @{ Status=$status; Severity=$sev; Flag=$flag; Warn=$warn; Info=$info }
+}
+
+function Probe-DefenderThreats {
+    $details = New-Object System.Collections.Generic.List[string]
+    $threats = @()
+    try {
+        $raw = @(Get-MpThreat -ErrorAction Stop)
+        foreach ($t in $raw) {
+            $nm = ''; $res = @()
+            $nmp = $t.PSObject.Properties['ThreatName']; if ($nmp) { $nm = [string]$nmp.Value }
+            $rp  = $t.PSObject.Properties['Resources'];  if ($rp -and $rp.Value) { $res = @($rp.Value) }
+            $exec = $false
+            $ep = $t.PSObject.Properties['DidThreatExecute']; if ($ep) { try { $exec = [bool]$ep.Value } catch { } }
+            $path = ($res -join ' ') -replace '(?i)(file|containerfile|regkey|amsi):_?', ''
+            $threats += @{ Name=$nm; Path=$path; Executed=$exec }
+        }
+    } catch {
+        return (New-ProbeResult -Id 'DEFTHREAT' -Name 'Historique menaces Defender' -Status 'NA' -Severity 0 -Summary "Historique Defender non lisible ($($_.Exception.Message.Split([char]10)[0]))" -Details $details)
+    }
+    if ($threats.Count -eq 0) {
+        $details.Add("L'historique Defender se purge tout seul (~30 j sur certains items) : un historique vide n'est PAS une preuve de PC propre.")
+        return (New-ProbeResult -Id 'DEFTHREAT' -Name 'Historique menaces Defender' -Status 'OK' -Severity 0 -Summary "Aucune menace dans l'historique Defender (ne prouve pas l'absence de cheat : l'historique se purge)" -Details $details)
+    }
+    $a = Get-DefenderThreatAssessment -Threats $threats -FlagPatterns (Get-CheatFlagPatterns)
+    foreach ($x in $a.Flag) { $details.Add("[cheat NOMME detecte par Defender] $x") }
+    foreach ($x in $a.Warn) { $details.Add("[outil de triche (categorie Microsoft), generique] $x") }
+    foreach ($x in $a.Info) { $details.Add("[menace detectee (pas forcement un cheat de jeu)] $x") }
+    foreach ($th in $threats) { if ($th.Executed) { $details.Add("  -> Microsoft indique que cette menace a EXECUTE : $($th.Name)") } }
+    $sum = switch ($a.Status) {
+        'FLAG' { "$($a.Flag.Count) cheat(s) connu(s) deja detecte(s) par Defender sur cette machine" }
+        'WARN' { "$($a.Warn.Count) outil(s) de triche detecte(s) par Defender (categorie generique - a verifier)" }
+        'INFO' { "$($a.Info.Count) menace(s) dans l'historique Defender (pas forcement liee(s) au jeu)" }
+        default { "Historique Defender lu, rien de suspect" }
+    }
+    New-ProbeResult -Id 'DEFTHREAT' -Name 'Historique menaces Defender' -Status $a.Status -Severity $a.Severity -Summary $sum -Details $details
+}
+
 function Get-DriverAssessment {
     # Logique PURE testable. Driver kernel non signe charge = fort signal BYOVD. Driver connu
     # abusable = a verifier (souvent dual-use : Afterburner/HWiNFO). On reste en WARN (le
@@ -2498,6 +2565,7 @@ function Invoke-DexCheck {
         @{ Name='Cheats logiciels connus';       Fn=${function:Probe-KnownCheats} }
         @{ Name='Manipulation input / anti-recoil'; Fn=${function:Probe-InputManipulation} }
         @{ Name='Historique USB (devices debranches)'; Fn=${function:Probe-UsbHistory} }
+        @{ Name='Historique menaces Defender';    Fn=${function:Probe-DefenderThreats} }
     )
     if ($Deep) {
         $probes += @{ Name='[-Deep] Dump USN suppressions (CSV)'; Fn=${function:Probe-DeepUsnDump} }

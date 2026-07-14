@@ -852,6 +852,31 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "Defender historique VRAI-POSITIF : une detection au nom de cheat DISTINCTIF (engineowning) => FLAG (verdict signe Microsoft)" {
+    $fp = Get-CheatFlagPatterns
+    $a = Get-DefenderThreatAssessment @(@{ Name='HackTool:Win32/EngineOwning'; Path='C:\Users\x\Downloads\eo_loader.exe' }) $fp
+    ($a.Status -eq 'FLAG') -and ($a.Severity -eq 2)
+}
+Test-Case "Defender historique : Cheat Engine (HackTool generique) => WARN pas FLAG (le moddeur de jeu SOLO est protege)" {
+    $fp = Get-CheatFlagPatterns
+    $a = Get-DefenderThreatAssessment @(@{ Name='HackTool:Win32/CheatEngine'; Path='C:\Program Files\Cheat Engine\cheatengine.exe' }) $fp
+    ($a.Status -eq 'WARN') -and ($a.Severity -eq 1)
+}
+Test-Case "Defender historique : PUA/malware generique (Presenoker) => INFO (Defender a chope qqch, pas forcement un cheat de jeu)" {
+    $fp = Get-CheatFlagPatterns
+    $a = Get-DefenderThreatAssessment @(@{ Name='PUA:Win32/Presenoker'; Path='C:\Users\x\AppData\Local\Temp\setup.exe' }) $fp
+    ($a.Status -eq 'INFO') -and ($a.Severity -eq 0)
+}
+Test-Case "Defender historique : aucune menace / null => OK (et l'historique se purge, donc vide != preuve de proprete)" {
+    $fp = Get-CheatFlagPatterns
+    ((Get-DefenderThreatAssessment @() $fp).Status -eq 'OK') -and
+    ((Get-DefenderThreatAssessment $null $fp).Status -eq 'OK')
+}
+Test-Case "Sonde Historique menaces Defender presente dans le rapport et jamais FLAG sur ce PC (pas de faux SUSPECT)" {
+    (@($statuses.Keys | Where-Object { $_ -like '*menaces Defender*' }).Count -ge 1) -and
+    (@($statuses.GetEnumerator() | Where-Object { $_.Key -like '*menaces Defender*' -and $_.Value -eq 'FLAG' }).Count -eq 0)
+}
+
 Test-Case "USB historique VRAI-POSITIF : un descripteur Cronus deja branche (meme debranche) => FLAG (le trou de INPUT live est bouche)" {
     $h = Get-UsbHistoryHits @('DualSense Wireless Controller','Cronus Zen','HP DeskJet 3630 series') $script:InputTools
     ($h.Count -eq 1) -and ($h[0].Sev -ge 2) -and ($h[0].Name -match '(?i)cronus')
