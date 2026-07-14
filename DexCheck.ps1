@@ -588,6 +588,7 @@ $script:ProbeMeaning = @{
     INJECT    = @{ Shows="un point d'injection DLL (AppInit/AppCert/IFEO) est positionne = un overlay/cheat peut se charger dans le jeu"; ProvesNot="quelques outils legitimes en posent - valeur non vide = a verifier, pas a bannir" }
     USBHIST   = @{ Shows="un boitier anti-recoil / device d'injection a deja ete branche sur cette machine (historique USB), meme s'il est debranche maintenant"; ProvesNot="un branchement passe n'est pas un usage en match ; PC d'occasion, frere/coloc, revendu - le modo fait expliquer le device"; ShowsFlag="un boitier anti-recoil au descripteur DISTINCTIF (Cronus/XIM/Titan/ReaSnow) a ete physiquement branche sur cette machine (descripteur firmware, non renommable) ; il a pu etre debranche juste avant le check"; ProvesNotFlag="le descripteur prouve le branchement PHYSIQUE, pas l'usage en match ; un PC d'occasion ou prete peut porter cette trace - le modo demande au joueur d'expliquer ce device, il ne l'accuse pas" }
     DEFTHREAT = @{ Shows="Windows Defender a deja detecte / mis en quarantaine une menace sur cette machine (trace qui survit a la suppression du binaire)"; ProvesNot="Defender flagge aussi cracks, keygens et trainers de jeux SOLO ; l'historique se purge tout seul (~30 j) donc un historique vide ne prouve rien"; ShowsFlag="Defender a detecte un cheat au nom DISTINCTIF connu (engineowning, etc.) sur cette machine - detection signee Microsoft qui survit a la suppression du binaire"; ProvesNotFlag="la detection prouve la presence passee du cheat sur la machine, pas son usage en match ; reste a confirmer par la VOD" }
+    GPC       = @{ Shows="un fichier .gpc (script de l'ecosysteme Cronus) est present"; ProvesNot="une extension .gpc seule peut etre une collision ; sans le contenu GPC ce n'est pas confirme"; ShowsFlag="un script GPC CONFIRME par son contenu (set_val/combo/event_press) = macro anti-recoil ecrite pour un boitier Cronus Zen/Max"; ProvesNotFlag="le script prouve la preparation d'un anti-recoil Cronus, pas son usage en match ; le boitier lui-meme se voit a l'USB / au check visuel" }
 }
 
 function Get-MeaningLines {
@@ -1938,6 +1939,49 @@ function Probe-UsbHistory {
     }
 }
 
+function Test-IsGpcScript {
+    # Pur -> testable. Vrai si le CONTENU ressemble a un script GPC (langage des boitiers Cronus
+    # Zen/Max, ou s'ecrivent les macros anti-recoil). On sniffe les mots-cles du langage, PAS juste
+    # l'extension .gpc : une collision d'extension ne doit pas FLAG (loi "prouver pas nommer").
+    # event_press/event_release sont quasi exclusifs a GPC ; sinon on exige >=2 marqueurs.
+    param([string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return $false }
+    $exclusive = @('event_press','event_release','get_ptime','set_rumble')
+    foreach ($m in $exclusive) { if ($Text.IndexOf($m,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true } }
+    $markers = @('set_val','get_val','combo','remap','get_lval','block')
+    $n = 0
+    foreach ($m in $markers) { if ($Text.IndexOf($m,[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { $n++ } }
+    return ($n -ge 2)
+}
+
+function Probe-GpcScripts {
+    $details = New-Object System.Collections.Generic.List[string]
+    $confirmed = New-Object System.Collections.Generic.List[string]
+    $extOnly = New-Object System.Collections.Generic.List[string]
+    # Zones utilisateur usuelles seulement (pas tout le disque : couteux + le .gpc arrive par download).
+    $roots = @("$env:USERPROFILE\Downloads","$env:USERPROFILE\Desktop","$env:USERPROFILE\Documents","$env:TEMP") | Select-Object -Unique
+    foreach ($r in $roots) {
+        if (-not (Test-Path $r)) { continue }
+        try {
+            foreach ($f in (Get-ChildItem -LiteralPath $r -Recurse -File -Filter *.gpc -Force -ErrorAction SilentlyContinue)) {
+                $txt = ''
+                try { $txt = (Get-Content -LiteralPath $f.FullName -TotalCount 500 -ErrorAction SilentlyContinue) -join "`n" } catch { }
+                if (Test-IsGpcScript $txt) { $confirmed.Add($f.FullName) } else { $extOnly.Add($f.FullName) }
+            }
+        } catch { }
+    }
+    $details.Add("Recherche de scripts GPC (macros Cronus) dans Downloads/Desktop/Documents/Temp - contenu sniffe, pas juste l'extension.")
+    if ($confirmed.Count -gt 0) {
+        foreach ($x in $confirmed) { $details.Add("SCRIPT GPC CONFIRME (contenu) : $x") }
+        New-ProbeResult -Id 'GPC' -Name 'Scripts anti-recoil Cronus (.gpc)' -Status 'FLAG' -Severity 2 -Summary "$($confirmed.Count) script(s) GPC (macro anti-recoil Cronus) confirme(s) par le contenu" -Details $details
+    } elseif ($extOnly.Count -gt 0) {
+        foreach ($x in $extOnly) { $details.Add("Fichier .gpc SANS contenu GPC reconnu (collision d'extension possible) : $x") }
+        New-ProbeResult -Id 'GPC' -Name 'Scripts anti-recoil Cronus (.gpc)' -Status 'WARN' -Severity 1 -Summary "$($extOnly.Count) fichier(s) .gpc sans contenu GPC confirme - a verifier" -Details $details
+    } else {
+        New-ProbeResult -Id 'GPC' -Name 'Scripts anti-recoil Cronus (.gpc)' -Status 'OK' -Severity 0 -Summary "Aucun script GPC (Cronus) dans les zones utilisateur" -Details $details
+    }
+}
+
 function Get-VmAssessment {
     # Logique PURE testable : la machine du check doit etre la VRAIE machine de jeu.
     # Tourner le check dans une VM clean pendant qu'on joue sur l'hote = evasion screenshare.
@@ -2580,6 +2624,7 @@ function Invoke-DexCheck {
         @{ Name='Manipulation input / anti-recoil'; Fn=${function:Probe-InputManipulation} }
         @{ Name='Historique USB (devices debranches)'; Fn=${function:Probe-UsbHistory} }
         @{ Name='Historique menaces Defender';    Fn=${function:Probe-DefenderThreats} }
+        @{ Name='Scripts anti-recoil Cronus (.gpc)'; Fn=${function:Probe-GpcScripts} }
     )
     if ($Deep) {
         $probes += @{ Name='[-Deep] Dump USN suppressions (CSV)'; Fn=${function:Probe-DeepUsnDump} }

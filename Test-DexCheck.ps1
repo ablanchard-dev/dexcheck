@@ -852,6 +852,23 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "GPC VRAI-POSITIF : un contenu de script Cronus (set_val/combo/event_press) => reconnu comme GPC (FLAG)" {
+    $gpc = "main {`n  combo Recoil {`n    set_val(4, 100);`n    event_press(11);`n  }`n}"
+    (Test-IsGpcScript $gpc)
+}
+Test-Case "GPC : une collision d'extension (.gpc qui contient du texte quelconque) => PAS reconnu (pas de faux FLAG)" {
+    (-not (Test-IsGpcScript "Rapport trimestriel 2026, chiffres et notes diverses.")) -and
+    (-not (Test-IsGpcScript "combo de touches pour la recette")) -and
+    (-not (Test-IsGpcScript ''))
+}
+Test-Case "GPC : un seul marqueur faible ne suffit pas (>=2 requis hors mots exclusifs GPC)" {
+    (-not (Test-IsGpcScript 'juste le mot set_val tout seul dans une phrase'))
+}
+Test-Case "Sonde Scripts GPC presente dans le rapport et jamais FLAG sur ce PC (pas de faux SUSPECT)" {
+    (@($statuses.Keys | Where-Object { $_ -like '*.gpc*' -or $_ -like '*Cronus*' }).Count -ge 1) -and
+    (@($statuses.GetEnumerator() | Where-Object { ($_.Key -like '*.gpc*' -or $_.Key -like '*Cronus*') -and $_.Value -eq 'FLAG' }).Count -eq 0)
+}
+
 Test-Case "Process cmdline VRAI-POSITIF : un cheat lance via un exe RENOMME mais avec un arg distinctif (engineowning) => detecte (on ne lisait que le nom avant)" {
     $fp = @(); foreach($c in $script:CheatSoftware){ if(-not $c.GenericName){ $fp += $c.Patterns } }
     (Test-ProcessIsCheat 'svchost.exe' 'C:\Windows\Temp\svchost.exe' 'svchost.exe --config engineowning.cfg' $fp)
