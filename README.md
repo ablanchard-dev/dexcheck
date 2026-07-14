@@ -40,7 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$p=(Get-ChildItem $HOME 
 
 ## What it checks
 
-Windows (`DexCheck.ps1` — 34 probes, +2 in `-Deep`):
+Windows (`DexCheck.ps1` — 35 probes, +2 in `-Deep`):
 
 - Identity and clock (clock-rollback heuristic), Windows install age
 - USN journal state and a deleted-file timeline (raw USN journal reader via P/Invoke)
@@ -61,6 +61,7 @@ Windows (`DexCheck.ps1` — 34 probes, +2 in `-Deep`):
 - Recently opened files and Run-dialog commands (RecentDocs, RunMRU)
 - **Download provenance (Mark-of-the-Web)**: the `Zone.Identifier` stream records the URL a file was downloaded from — a file pulled from a known cheat domain is flagged, and this provenance **survives wiping the browser history**
 - DMA protection posture (VBS / Kernel DMA Protection availability) — INFO only, context for the PCIe probe
+- **Freshness-wall timeline**: correlates the oldest artifact of each long-baseline source against the Windows install date — an innocent PC has old, desynchronized history; a wiped one has everything starting in a narrow window on an old install. Presentation only (INFO, never affects the verdict); rolling-window sources (USN, saturated Prefetch, Shimcache) are excluded from the calculation
 - `-Deep`: full USN deletion dump to CSV + free-space signature carving
 
 macOS (`DexCheck-Mac.command`): capture cards, FTDI/DMA bridges, remote-control
