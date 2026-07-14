@@ -590,6 +590,7 @@ $script:ProbeMeaning = @{
     DEFTHREAT = @{ Shows="Windows Defender a deja detecte / mis en quarantaine une menace sur cette machine (trace qui survit a la suppression du binaire)"; ProvesNot="Defender flagge aussi cracks, keygens et trainers de jeux SOLO ; l'historique se purge tout seul (~30 j) donc un historique vide ne prouve rien"; ShowsFlag="Defender a detecte un cheat au nom DISTINCTIF connu (engineowning, etc.) sur cette machine - detection signee Microsoft qui survit a la suppression du binaire"; ProvesNotFlag="la detection prouve la presence passee du cheat sur la machine, pas son usage en match ; reste a confirmer par la VOD" }
     GPC       = @{ Shows="un fichier .gpc (script de l'ecosysteme Cronus) est present"; ProvesNot="une extension .gpc seule peut etre une collision ; sans le contenu GPC ce n'est pas confirme"; ShowsFlag="un script GPC CONFIRME par son contenu (set_val/combo/event_press) = macro anti-recoil ecrite pour un boitier Cronus Zen/Max"; ProvesNotFlag="le script prouve la preparation d'un anti-recoil Cronus, pas son usage en match ; le boitier lui-meme se voit a l'USB / au check visuel" }
     WER       = @{ Shows="un programme a plante et Windows a garde son nom (WER)"; ProvesNot="un plantage n'est pas un usage en match ; tout plante sous Windows et un nom generique reste dual-use"; ShowsFlag="un cheat au nom DISTINCTIF a plante sur cette machine (WER l'a enregistre) = il tournait au moment du crash, meme efface depuis"; ProvesNotFlag="le crash prouve l'EXECUTION du cheat, pas le moment d'usage en partie ; le binaire efface n'est plus analysable - la trace WER, elle, a survecu" }
+    MRU       = @{ Shows="un fichier a ete ouvert recemment (RecentDocs) ou une commande tapee dans Executer (RunMRU)"; ProvesNot="ouvrir ou taper un nom n'est pas jouer avec ; un nom generique reste dual-use"; ShowsFlag="un fichier/commande au nom de cheat DISTINCTIF a ete ouvert recemment ou tape dans Executer (trace HKCU qui survit a la suppression du fichier)"; ProvesNotFlag="ca prouve un acces recent au fichier nomme, pas un usage en match ; a confirmer par la VOD" }
 }
 
 function Get-MeaningLines {
@@ -2040,6 +2041,63 @@ function Probe-WerCrashes {
     }
 }
 
+function ConvertFrom-RecentDocValue {
+    # Pur -> testable. La valeur binaire d'une entree RecentDocs commence par le NOM DE FICHIER en
+    # UTF-16LE, termine par un double octet nul, suivi d'un PIDL binaire. On extrait juste le nom.
+    param([byte[]]$Bytes)
+    if ($null -eq $Bytes -or $Bytes.Length -lt 2) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 0; $i + 1 -lt $Bytes.Length; $i += 2) {
+        $code = [int]$Bytes[$i] -bor ([int]$Bytes[$i+1] -shl 8)
+        if ($code -eq 0) { break }
+        [void]$sb.Append([char]$code)
+    }
+    return $sb.ToString()
+}
+
+function Probe-RecentActivity {
+    $details = New-Object System.Collections.Generic.List[string]
+    $names = New-Object System.Collections.Generic.List[string]
+    # RecentDocs = fichiers ouverts recemment (valeurs binaires, nom en tete UTF-16).
+    $rdRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs'
+    try {
+        $keys = @($rdRoot)
+        $keys += @(Get-ChildItem $rdRoot -ErrorAction SilentlyContinue | ForEach-Object { $_.PSPath })
+        foreach ($k in $keys) {
+            $item = Get-Item -LiteralPath $k -ErrorAction SilentlyContinue
+            if ($null -eq $item) { continue }
+            foreach ($vn in $item.GetValueNames()) {
+                if ($vn -eq 'MRUListEx') { continue }
+                $data = $item.GetValue($vn)
+                if ($data -is [byte[]]) { $nm = ConvertFrom-RecentDocValue $data; if ($nm) { $names.Add($nm) } }
+            }
+        }
+    } catch { }
+    # RunMRU = commandes tapees dans la boite Executer (valeurs texte "cmd\1").
+    $rmRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU'
+    try {
+        $item = Get-Item -LiteralPath $rmRoot -ErrorAction SilentlyContinue
+        if ($null -ne $item) {
+            foreach ($vn in $item.GetValueNames()) {
+                if ($vn -eq 'MRUList') { continue }
+                $v = [string]$item.GetValue($vn)
+                if ($v) { $names.Add(($v -replace '\\1$','')) }
+            }
+        }
+    } catch { }
+    $details.Add("$($names.Count) entree(s) RecentDocs/RunMRU (fichiers ouverts recemment + commandes Executer) analysee(s).")
+    $a = Get-WerCrashHits -Names $names -FlagPatterns (Get-CheatFlagPatterns) -WarnPatterns $script:CheatWarnWords
+    if ($a.Flag.Count -gt 0) {
+        foreach ($x in ($a.Flag | Select-Object -Unique)) { $details.Add("Nom de cheat DISTINCTIF ouvert/tape recemment : $x") }
+        New-ProbeResult -Id 'MRU' -Name 'Fichiers recents / Executer (RecentDocs, RunMRU)' -Status 'FLAG' -Severity 2 -Summary "$(@($a.Flag | Select-Object -Unique).Count) nom(s) de cheat distinctif(s) dans les fichiers recents / Executer" -Details $details
+    } elseif ($a.Warn.Count -gt 0) {
+        foreach ($x in ($a.Warn | Select-Object -Unique)) { $details.Add("Nom generique/categorie ouvert recemment (dual-use) : $x") }
+        New-ProbeResult -Id 'MRU' -Name 'Fichiers recents / Executer (RecentDocs, RunMRU)' -Status 'WARN' -Severity 1 -Summary "$(@($a.Warn | Select-Object -Unique).Count) nom(s) generique(s) dans les fichiers recents - a verifier" -Details $details
+    } else {
+        New-ProbeResult -Id 'MRU' -Name 'Fichiers recents / Executer (RecentDocs, RunMRU)' -Status 'OK' -Severity 0 -Summary "Rien de suspect dans les fichiers recents / Executer" -Details $details
+    }
+}
+
 function Get-VmAssessment {
     # Logique PURE testable : la machine du check doit etre la VRAIE machine de jeu.
     # Tourner le check dans une VM clean pendant qu'on joue sur l'hote = evasion screenshare.
@@ -2684,6 +2742,7 @@ function Invoke-DexCheck {
         @{ Name='Historique menaces Defender';    Fn=${function:Probe-DefenderThreats} }
         @{ Name='Scripts anti-recoil Cronus (.gpc)'; Fn=${function:Probe-GpcScripts} }
         @{ Name="Rapports d'erreur (WER, anti-wipe)"; Fn=${function:Probe-WerCrashes} }
+        @{ Name='Fichiers recents / Executer (RecentDocs, RunMRU)'; Fn=${function:Probe-RecentActivity} }
     )
     if ($Deep) {
         $probes += @{ Name='[-Deep] Dump USN suppressions (CSV)'; Fn=${function:Probe-DeepUsnDump} }

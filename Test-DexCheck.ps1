@@ -852,6 +852,24 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "RecentDocs : le parseur binaire extrait bien le nom UTF-16 en tete (engineowning.exe)" {
+    $s = 'engineowning.exe'
+    $bytes = [System.Text.Encoding]::Unicode.GetBytes($s) + @([byte]0,[byte]0) + @([byte]1,[byte]2,[byte]3,[byte]4)
+    (ConvertFrom-RecentDocValue $bytes) -eq $s
+}
+Test-Case "MRU VRAI-POSITIF : un nom de cheat distinctif ouvert recemment => FLAG (RecentDocs/RunMRU, survit a la suppression)" {
+    $a = Get-WerCrashHits @('engineowning.exe','rapport.docx','photo.png') (Get-CheatFlagPatterns) $script:CheatWarnWords
+    ($a.Flag.Count -eq 1) -and ($a.Warn.Count -eq 0)
+}
+Test-Case "MRU : fichiers banals recents (docx, png, cmd) => aucun hit (pas de faux positif)" {
+    ((Get-WerCrashHits @('budget2026.xlsx','vacances.jpg','notepad.exe') (Get-CheatFlagPatterns) $script:CheatWarnWords).Flag.Count -eq 0) -and
+    ((ConvertFrom-RecentDocValue $null) -eq '')
+}
+Test-Case "Sonde Fichiers recents/Executer presente dans le rapport et jamais FLAG sur ce PC (pas de faux SUSPECT)" {
+    (@($statuses.Keys | Where-Object { $_ -like '*RecentDocs*' -or $_ -like '*Executer*' }).Count -ge 1) -and
+    (@($statuses.GetEnumerator() | Where-Object { ($_.Key -like '*RecentDocs*' -or $_.Key -like '*Executer*') -and $_.Value -eq 'FLAG' }).Count -eq 0)
+}
+
 Test-Case "WER VRAI-POSITIF : un cheat distinctif qui a plante (engineowning.exe) => FLAG (le nom survit a la suppression du binaire)" {
     $a = Get-WerCrashHits @('AppCrash_engineowning.exe_abc123','chrome.exe','explorer.exe') (Get-CheatFlagPatterns) $script:CheatWarnWords
     ($a.Flag.Count -eq 1) -and ($a.Warn.Count -eq 0)
