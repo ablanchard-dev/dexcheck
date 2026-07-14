@@ -586,6 +586,7 @@ $script:ProbeMeaning = @{
     KDRV      = @{ Shows="un driver kernel non signe ou connu abusable (BYOVD) = acces kernel possible pour un cheat"; ProvesNot="ces drivers sont souvent dual-use (Afterburner/HWiNFO/monitoring) - a confirmer" }
     DRVINST   = @{ Shows="un driver/service abusable (BYOVD) a ete installe, avec sa date - complete KDRV qui ne voit que les drivers charges maintenant"; ProvesNot="beaucoup de drivers legitimes s'installent en service (Afterburner/HWiNFO/anti-triche) ; la date d'install seule ne prouve pas un usage cheat"; ShowsFlag="un service/driver au nom de cheat DISTINCTIF a ete installe a telle date (trace SCM qui survit a la suppression du binaire)"; ProvesNotFlag="le nom distinctif + la date d'install sont solides ; reste a confirmer l'usage en match (VOD)" }
     INJECT    = @{ Shows="un point d'injection DLL (AppInit/AppCert/IFEO) est positionne = un overlay/cheat peut se charger dans le jeu"; ProvesNot="quelques outils legitimes en posent - valeur non vide = a verifier, pas a bannir" }
+    USBHIST   = @{ Shows="un boitier anti-recoil / device d'injection a deja ete branche sur cette machine (historique USB), meme s'il est debranche maintenant"; ProvesNot="un branchement passe n'est pas un usage en match ; PC d'occasion, frere/coloc, revendu - le modo fait expliquer le device"; ShowsFlag="un boitier anti-recoil au descripteur DISTINCTIF (Cronus/XIM/Titan/ReaSnow) a ete physiquement branche sur cette machine (descripteur firmware, non renommable) ; il a pu etre debranche juste avant le check"; ProvesNotFlag="le descripteur prouve le branchement PHYSIQUE, pas l'usage en match ; un PC d'occasion ou prete peut porter cette trace - le modo demande au joueur d'expliquer ce device, il ne l'accuse pas" }
 }
 
 function Get-MeaningLines {
@@ -1858,6 +1859,70 @@ function Probe-InputManipulation {
     }
 }
 
+function Get-UsbHistoryHits {
+    # Pur -> testable. Recoit les descriptions de devices USB DEJA branches (historique registre,
+    # meme debranches) et rend les hits contre les tokens USB de $script:InputTools (word-boundary,
+    # meme semantique que la sonde INPUT live). Un descripteur USB vient du FIRMWARE du device, pas
+    # d'un nom de fichier renommable : c'est la trace materielle d'un branchement physique passe.
+    # Complete INPUT qui ne voit que ce qui est branche a l'instant T (un Cronus debranche 5 min
+    # avant le check passait au travers).
+    param([string[]]$Descs, $Tools)
+    $hits = New-Object System.Collections.Generic.List[object]
+    if ($null -eq $Descs) { return ,$hits }
+    foreach ($t in $Tools) {
+        if ($t.Usb.Count -eq 0) { continue }
+        foreach ($d in $Descs) {
+            if (Test-AnyWord ([string]$d) $t.Usb) {
+                $hits.Add([pscustomobject]@{ Name=$t.Name; Desc=[string]$d; Sev=$t.Severity }); break
+            }
+        }
+    }
+    return ,$hits
+}
+
+function Probe-UsbHistory {
+    $details = New-Object System.Collections.Generic.List[string]
+    $descs = New-Object System.Collections.Generic.List[string]
+    $root = 'HKLM:\SYSTEM\CurrentControlSet\Enum\USB'
+    $read = $false
+    try {
+        foreach ($vid in (Get-ChildItem $root -ErrorAction Stop)) {
+            foreach ($inst in (Get-ChildItem $vid.PSPath -ErrorAction SilentlyContinue)) {
+                $read = $true
+                $p = Get-ItemProperty $inst.PSPath -ErrorAction SilentlyContinue
+                # DeviceDesc/FriendlyName = descripteur firmware (nom produit en clair, ex "Cronus").
+                # Acces via PSObject.Properties[] : sous StrictMode, un .Prop absent (ou $p $null)
+                # jetterait et ferait tomber TOUTE la sonde en NA - beaucoup de cles USB n'ont pas FriendlyName.
+                $fn = ''; $dd = ''
+                if ($p) {
+                    $fnp = $p.PSObject.Properties['FriendlyName']; if ($fnp) { $fn = [string]$fnp.Value }
+                    $ddp = $p.PSObject.Properties['DeviceDesc'];   if ($ddp) { $dd = [string]$ddp.Value }
+                }
+                $hay = (('{0} {1}' -f $fn, $dd)).Trim()
+                if ($hay) { $descs.Add($hay) }
+            }
+        }
+    } catch {
+        return (New-ProbeResult -Id 'USBHIST' -Name 'Historique USB (devices debranches)' -Status 'NA' -Severity 0 -Summary "Enum USB non lisible ($($_.Exception.Message.Split([char]10)[0]))" -Details $details)
+    }
+    if (-not $read) {
+        return (New-ProbeResult -Id 'USBHIST' -Name 'Historique USB (devices debranches)' -Status 'NA' -Severity 0 -Summary "Aucune entree USB historique lisible" -Details $details)
+    }
+    # ponytail: date de branchement (LastArrivalDate, sous-cle Properties/GUID) non lue - marginale
+    # (le modo fait de toute facon expliquer le device) ; a ajouter si un jour on veut trier par fraicheur.
+    $details.Add("$($descs.Count) device(s) USB deja branche(s) sur cette machine (historique registre, y compris debranches).")
+    $hits = Get-UsbHistoryHits -Descs $descs -Tools $script:InputTools
+    if ($hits.Count -gt 0) {
+        $maxSev = ($hits | Measure-Object -Property Sev -Maximum).Maximum
+        $status = if ($maxSev -ge 2) { 'FLAG' } else { 'WARN' }
+        foreach ($h in $hits) { $details.Add("  $($h.Name) : '$($h.Desc)'  [sev $($h.Sev)]") }
+        $sum = "$($hits.Count) device(s) d'input/anti-recoil dans l'historique USB (a pu etre debranche avant le check)"
+        New-ProbeResult -Id 'USBHIST' -Name 'Historique USB (devices debranches)' -Status $status -Severity $maxSev -Summary $sum -Details $details
+    } else {
+        New-ProbeResult -Id 'USBHIST' -Name 'Historique USB (devices debranches)' -Status 'OK' -Severity 0 -Summary "Aucun boitier Cronus/XIM/kmbox dans l'historique USB" -Details $details
+    }
+}
+
 function Get-VmAssessment {
     # Logique PURE testable : la machine du check doit etre la VRAIE machine de jeu.
     # Tourner le check dans une VM clean pendant qu'on joue sur l'hote = evasion screenshare.
@@ -2432,6 +2497,7 @@ function Invoke-DexCheck {
         @{ Name='Injection / hijack (AppInit/IFEO)'; Fn=${function:Probe-Injection} }
         @{ Name='Cheats logiciels connus';       Fn=${function:Probe-KnownCheats} }
         @{ Name='Manipulation input / anti-recoil'; Fn=${function:Probe-InputManipulation} }
+        @{ Name='Historique USB (devices debranches)'; Fn=${function:Probe-UsbHistory} }
     )
     if ($Deep) {
         $probes += @{ Name='[-Deep] Dump USN suppressions (CSV)'; Fn=${function:Probe-DeepUsnDump} }

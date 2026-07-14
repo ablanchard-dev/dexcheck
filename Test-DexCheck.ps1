@@ -852,6 +852,28 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "USB historique VRAI-POSITIF : un descripteur Cronus deja branche (meme debranche) => FLAG (le trou de INPUT live est bouche)" {
+    $h = Get-UsbHistoryHits @('DualSense Wireless Controller','Cronus Zen','HP DeskJet 3630 series') $script:InputTools
+    ($h.Count -eq 1) -and ($h[0].Sev -ge 2) -and ($h[0].Name -match '(?i)cronus')
+}
+Test-Case "USB historique : XIM et kmbox reconnus, kmbox reste sev 1 (WARN) et non FLAG (coherence avec INPUT live)" {
+    $x = Get-UsbHistoryHits @('XIM APEX') $script:InputTools
+    $k = Get-UsbHistoryHits @('kmbox net') $script:InputTools
+    ($x.Count -eq 1) -and ($x[0].Sev -ge 2) -and ($k.Count -eq 1) -and ($k[0].Sev -eq 1)
+}
+Test-Case "USB historique : descripteurs propres (manette, imprimante, casque) => 0 hit (pas de faux positif)" {
+    $h = Get-UsbHistoryHits @('DualSense Edge Wireless Controller','HP DeskJet 3630 series','Wireless Stereo Headset','USB Composite Device') $script:InputTools
+    ($h.Count -eq 0)
+}
+Test-Case "USB historique : null / vide => 0 hit, pas de crash" {
+    ((Get-UsbHistoryHits $null $script:InputTools).Count -eq 0) -and
+    ((Get-UsbHistoryHits @() $script:InputTools).Count -eq 0)
+}
+Test-Case "Sonde Historique USB presente dans le rapport et jamais FLAG sur ce PC (pas de faux SUSPECT)" {
+    (@($statuses.Keys | Where-Object { $_ -like '*Historique USB*' }).Count -ge 1) -and
+    (@($statuses.GetEnumerator() | Where-Object { $_.Key -like '*Historique USB*' -and $_.Value -eq 'FLAG' }).Count -eq 0)
+}
+
 Test-Case "Headline ACTION : 'ne pas accuser' sur A VERIFIER et SUSPECT ; 'arbitre' sur ROUGE ; 'check visuel' sur CLEAN" {
     ((Get-VerdictAction 'SUSPECT')    -match '(?i)ne pas accuser') -and
     ((Get-VerdictAction 'A VERIFIER') -match '(?i)ne pas accuser') -and
