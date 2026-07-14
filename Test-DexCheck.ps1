@@ -852,6 +852,23 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "WER VRAI-POSITIF : un cheat distinctif qui a plante (engineowning.exe) => FLAG (le nom survit a la suppression du binaire)" {
+    $a = Get-WerCrashHits @('AppCrash_engineowning.exe_abc123','chrome.exe','explorer.exe') (Get-CheatFlagPatterns) $script:CheatWarnWords
+    ($a.Flag.Count -eq 1) -and ($a.Warn.Count -eq 0)
+}
+Test-Case "WER : un nom generique/categorie qui a plante (aimbot.exe) => WARN pas FLAG (dual-use)" {
+    $a = Get-WerCrashHits @('AppCrash_aimbot.exe_xyz') (Get-CheatFlagPatterns) $script:CheatWarnWords
+    ($a.Flag.Count -eq 0) -and ($a.Warn.Count -eq 1)
+}
+Test-Case "WER : crashs banals (chrome, jeux, null) => aucun hit (pas de faux positif, pas de crash)" {
+    ((Get-WerCrashHits @('AppCrash_chrome.exe','AppCrash_cod.exe','AppHang_steam.exe') (Get-CheatFlagPatterns) $script:CheatWarnWords).Flag.Count -eq 0) -and
+    ((Get-WerCrashHits $null (Get-CheatFlagPatterns) $script:CheatWarnWords).Flag.Count -eq 0)
+}
+Test-Case "Sonde WER presente dans le rapport et jamais FLAG sur ce PC (pas de faux SUSPECT)" {
+    (@($statuses.Keys | Where-Object { $_ -like '*WER*' }).Count -ge 1) -and
+    (@($statuses.GetEnumerator() | Where-Object { $_.Key -like '*WER*' -and $_.Value -eq 'FLAG' }).Count -eq 0)
+}
+
 Test-Case "GPC VRAI-POSITIF : un contenu de script Cronus (set_val/combo/event_press) => reconnu comme GPC (FLAG)" {
     $gpc = "main {`n  combo Recoil {`n    set_val(4, 100);`n    event_press(11);`n  }`n}"
     (Test-IsGpcScript $gpc)

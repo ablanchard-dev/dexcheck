@@ -589,6 +589,7 @@ $script:ProbeMeaning = @{
     USBHIST   = @{ Shows="un boitier anti-recoil / device d'injection a deja ete branche sur cette machine (historique USB), meme s'il est debranche maintenant"; ProvesNot="un branchement passe n'est pas un usage en match ; PC d'occasion, frere/coloc, revendu - le modo fait expliquer le device"; ShowsFlag="un boitier anti-recoil au descripteur DISTINCTIF (Cronus/XIM/Titan/ReaSnow) a ete physiquement branche sur cette machine (descripteur firmware, non renommable) ; il a pu etre debranche juste avant le check"; ProvesNotFlag="le descripteur prouve le branchement PHYSIQUE, pas l'usage en match ; un PC d'occasion ou prete peut porter cette trace - le modo demande au joueur d'expliquer ce device, il ne l'accuse pas" }
     DEFTHREAT = @{ Shows="Windows Defender a deja detecte / mis en quarantaine une menace sur cette machine (trace qui survit a la suppression du binaire)"; ProvesNot="Defender flagge aussi cracks, keygens et trainers de jeux SOLO ; l'historique se purge tout seul (~30 j) donc un historique vide ne prouve rien"; ShowsFlag="Defender a detecte un cheat au nom DISTINCTIF connu (engineowning, etc.) sur cette machine - detection signee Microsoft qui survit a la suppression du binaire"; ProvesNotFlag="la detection prouve la presence passee du cheat sur la machine, pas son usage en match ; reste a confirmer par la VOD" }
     GPC       = @{ Shows="un fichier .gpc (script de l'ecosysteme Cronus) est present"; ProvesNot="une extension .gpc seule peut etre une collision ; sans le contenu GPC ce n'est pas confirme"; ShowsFlag="un script GPC CONFIRME par son contenu (set_val/combo/event_press) = macro anti-recoil ecrite pour un boitier Cronus Zen/Max"; ProvesNotFlag="le script prouve la preparation d'un anti-recoil Cronus, pas son usage en match ; le boitier lui-meme se voit a l'USB / au check visuel" }
+    WER       = @{ Shows="un programme a plante et Windows a garde son nom (WER)"; ProvesNot="un plantage n'est pas un usage en match ; tout plante sous Windows et un nom generique reste dual-use"; ShowsFlag="un cheat au nom DISTINCTIF a plante sur cette machine (WER l'a enregistre) = il tournait au moment du crash, meme efface depuis"; ProvesNotFlag="le crash prouve l'EXECUTION du cheat, pas le moment d'usage en partie ; le binaire efface n'est plus analysable - la trace WER, elle, a survecu" }
 }
 
 function Get-MeaningLines {
@@ -1982,6 +1983,63 @@ function Probe-GpcScripts {
     }
 }
 
+function Get-WerCrashHits {
+    # Pur -> testable. Recoit des noms d'app issus des rapports d'erreur Windows (WER). Le nom du
+    # binaire est ecrit AU MOMENT DU CRASH => il survit a la suppression du binaire (source
+    # d'execution anti-wipe de plus). Meme classement 2 niveaux que les autres sondes : nom
+    # distinctif => FLAG, mot de categorie/generique => WARN.
+    param([string[]]$Names, [string[]]$FlagPatterns, [string[]]$WarnPatterns)
+    $flag = New-Object System.Collections.Generic.List[string]
+    $warn = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Names) { return @{ Flag=$flag; Warn=$warn } }
+    foreach ($n in $Names) {
+        $s = [string]$n
+        if ([string]::IsNullOrEmpty($s)) { continue }
+        if (Test-AnyWord $s $FlagPatterns) { $flag.Add($s) }
+        elseif (Test-AnyWord $s $WarnPatterns) { $warn.Add($s) }
+    }
+    return @{ Flag=$flag; Warn=$warn }
+}
+
+function Probe-WerCrashes {
+    $details = New-Object System.Collections.Generic.List[string]
+    $names = New-Object System.Collections.Generic.List[string]
+    $roots = @("$env:ProgramData\Microsoft\Windows\WER","$env:LOCALAPPDATA\Microsoft\Windows\WER") | Where-Object { $_ } | Select-Object -Unique
+    $scanned = 0; $cap = 3000
+    foreach ($r in $roots) {
+        foreach ($sub in @('ReportArchive','ReportQueue')) {
+            $d = Join-Path $r $sub
+            if (-not (Test-Path $d)) { continue }
+            try {
+                foreach ($rep in (Get-ChildItem -LiteralPath $d -Directory -ErrorAction SilentlyContinue)) {
+                    if ($scanned -ge $cap) { break }
+                    $scanned++
+                    $names.Add($rep.Name)   # dossier "AppCrash_<exe>_<hash>_..." => porte le nom du binaire
+                    $wer = Join-Path $rep.FullName 'Report.wer'
+                    if (Test-Path $wer) {
+                        try {
+                            foreach ($ln in (Get-Content -LiteralPath $wer -TotalCount 40 -ErrorAction SilentlyContinue)) {
+                                if ($ln -match '^(?:AppPath|Sig\[0\]\.Value|TargetAppId)=(.+)$') { $names.Add($Matches[1].Trim()) }
+                            }
+                        } catch { }
+                    }
+                }
+            } catch { }
+        }
+    }
+    $details.Add("$scanned rapport(s) d'erreur Windows (WER) analyse(s) - le nom du binaire qui a plante survit a sa suppression.")
+    $a = Get-WerCrashHits -Names $names -FlagPatterns (Get-CheatFlagPatterns) -WarnPatterns $script:CheatWarnWords
+    if ($a.Flag.Count -gt 0) {
+        foreach ($x in ($a.Flag | Select-Object -Unique)) { $details.Add("CHEAT DISTINCTIF qui a plante (WER) : $x") }
+        New-ProbeResult -Id 'WER' -Name "Rapports d'erreur (WER, anti-wipe)" -Status 'FLAG' -Severity 2 -Summary "$(@($a.Flag | Select-Object -Unique).Count) cheat(s) au nom distinctif ont plante sur cette machine (WER)" -Details $details
+    } elseif ($a.Warn.Count -gt 0) {
+        foreach ($x in ($a.Warn | Select-Object -Unique)) { $details.Add("Nom generique/categorie dans un crash (dual-use) : $x") }
+        New-ProbeResult -Id 'WER' -Name "Rapports d'erreur (WER, anti-wipe)" -Status 'WARN' -Severity 1 -Summary "$(@($a.Warn | Select-Object -Unique).Count) nom(s) generique(s) dans les crashs WER - a verifier" -Details $details
+    } else {
+        New-ProbeResult -Id 'WER' -Name "Rapports d'erreur (WER, anti-wipe)" -Status 'OK' -Severity 0 -Summary "$scanned crashs WER analyses, aucun nom suspect" -Details $details
+    }
+}
+
 function Get-VmAssessment {
     # Logique PURE testable : la machine du check doit etre la VRAIE machine de jeu.
     # Tourner le check dans une VM clean pendant qu'on joue sur l'hote = evasion screenshare.
@@ -2625,6 +2683,7 @@ function Invoke-DexCheck {
         @{ Name='Historique USB (devices debranches)'; Fn=${function:Probe-UsbHistory} }
         @{ Name='Historique menaces Defender';    Fn=${function:Probe-DefenderThreats} }
         @{ Name='Scripts anti-recoil Cronus (.gpc)'; Fn=${function:Probe-GpcScripts} }
+        @{ Name="Rapports d'erreur (WER, anti-wipe)"; Fn=${function:Probe-WerCrashes} }
     )
     if ($Deep) {
         $probes += @{ Name='[-Deep] Dump USN suppressions (CSV)'; Fn=${function:Probe-DeepUsnDump} }
