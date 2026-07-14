@@ -40,7 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$p=(Get-ChildItem $HOME 
 
 ## What it checks
 
-Windows (`DexCheck.ps1` — 25 probes, +2 in `-Deep`):
+Windows (`DexCheck.ps1` — 34 probes, +2 in `-Deep`):
 
 - Identity and clock (clock-rollback heuristic), Windows install age
 - USN journal state and a deleted-file timeline (raw USN journal reader via P/Invoke)
@@ -53,6 +53,14 @@ Windows (`DexCheck.ps1` — 25 probes, +2 in `-Deep`):
 - PCIe enumeration: flags a stock/lazy DMA card by its Xilinx vendor ID (`VEN_10EE`, the pcileech-fpga firmware), or a driverless PCIe device with an *unknown* vendor ID — WARN only (dual-use: legit FPGA dev-boards trigger it), never an auto-verdict. A driverless device from a mass-market vendor (Intel/AMD/NVIDIA/Realtek/… — e.g. a Wi-Fi card on a freshly built PC) is listed but downgraded to INFO, so a new build doesn't raise a false DMA WARN. Read-only, so a firmware-spoofed card that clones a real device's identity evades it (see Limits)
 - System security: Secure Boot, `testsigning` / `nointegritychecks`, TPM
 - Known cheat providers, input-manipulation / anti-recoil devices (Cronus, XIM, Titan, ...)
+- USB history: a Cronus / XIM / kmbox that was plugged in and **unplugged before the check** (registry device history, firmware descriptor — the live device probe only sees what's connected right now)
+- Windows Defender detection history (`Get-MpThreat`): a cheat the antivirus already caught — a Microsoft-signed verdict that survives deletion of the binary; generic HackTool categories (Cheat Engine, solo-game trainers) stay WARN, not FLAG
+- Running-process **command lines** (not just names): a cheat launched via a renamed executable but a distinctive argument
+- `.gpc` Cronus scripts, detected by their **content** (GPC keywords `set_val` / `combo` / `event_press`), not just the extension
+- Windows Error Reporting (WER) crash history: a cheat that crashed left its name behind (execution evidence that survives binary deletion)
+- Recently opened files and Run-dialog commands (RecentDocs, RunMRU)
+- **Download provenance (Mark-of-the-Web)**: the `Zone.Identifier` stream records the URL a file was downloaded from — a file pulled from a known cheat domain is flagged, and this provenance **survives wiping the browser history**
+- DMA protection posture (VBS / Kernel DMA Protection availability) — INFO only, context for the PCIe probe
 - `-Deep`: full USN deletion dump to CSV + free-space signature carving
 
 macOS (`DexCheck-Mac.command`): capture cards, FTDI/DMA bridges, remote-control
