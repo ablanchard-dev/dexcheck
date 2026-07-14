@@ -1212,6 +1212,17 @@ function Probe-Prefetch {
     New-ProbeResult -Id 'PREFETCH' -Name 'Prefetch' -Status $status -Severity $sev -Summary $summary -Details $details
 }
 
+function Test-ProcessIsCheat {
+    # Pur -> testable. Un process EN COURS dont le nom, le chemin OU la ligne de commande porte un
+    # token de cheat DISTINCTIF = execution en cours prouvee. La ligne de commande est matchee en
+    # frontiere de mot (Test-AnyWord) : un cheat lance avec un exe renomme mais des args distinctifs
+    # ('svchost.exe --config engineowning') est quand meme attrape. On ne lisait que le nom avant.
+    param([string]$Name, [string]$Path, [string]$CommandLine, [string[]]$CheatPatterns)
+    if ((Test-AnyPattern $Name $CheatPatterns) -or (Test-AnyPattern $Path $CheatPatterns)) { return $true }
+    if (Test-AnyWord $CommandLine $CheatPatterns) { return $true }
+    return $false
+}
+
 function Probe-Processes {
     $details = New-Object System.Collections.Generic.List[string]
     $procs = Get-CimInstance Win32_Process -ErrorAction Stop
@@ -1220,8 +1231,11 @@ function Probe-Processes {
     $userDirs = @('\temp\','\downloads\','\appdata\local\temp\','\users\public\')
     foreach ($p in $procs) {
         $name = $p.Name; $path = $p.ExecutablePath
-        if ((Test-AnyPattern $name $cheatPat) -or (Test-AnyPattern $path $cheatPat)) {
-            $suspect.Add("CHEAT? $name  ($path)")
+        $cmd = [string]$p.CommandLine
+        if (Test-ProcessIsCheat $name $path $cmd $cheatPat) {
+            $extra = ''
+            if ($cmd) { $c = $cmd.Trim(); if ($c.Length -gt 160) { $c = $c.Substring(0,160) + '...' }; $extra = "  cmd: $c" }
+            $suspect.Add("CHEAT? $name  ($path)$extra")
             continue
         }
         if (-not [string]::IsNullOrEmpty($path) -and (Test-AnyPattern $path $userDirs)) {
@@ -1233,7 +1247,7 @@ function Probe-Processes {
             } catch { }
         }
     }
-    $details.Add("Processus actifs : $($procs.Count) (detection par nom connu + executables non signes en zone temp ; pas d'inspection d'injection DLL en memoire).")
+    $details.Add("Processus actifs : $($procs.Count) (detection par nom/chemin ET ligne de commande + executables non signes en zone temp ; pas d'inspection d'injection DLL en memoire).")
     if ($suspect.Count -gt 0) {
         foreach($s in $suspect){ $details.Add("  $s") }
         $status = if ($suspect | Where-Object { $_ -like 'CHEAT?*' }) { 'FLAG' } else { 'WARN' }

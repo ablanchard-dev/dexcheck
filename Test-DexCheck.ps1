@@ -852,6 +852,20 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "Process cmdline VRAI-POSITIF : un cheat lance via un exe RENOMME mais avec un arg distinctif (engineowning) => detecte (on ne lisait que le nom avant)" {
+    $fp = @(); foreach($c in $script:CheatSoftware){ if(-not $c.GenericName){ $fp += $c.Patterns } }
+    (Test-ProcessIsCheat 'svchost.exe' 'C:\Windows\Temp\svchost.exe' 'svchost.exe --config engineowning.cfg' $fp)
+}
+Test-Case "Process cmdline : un process banal (steam, chemins Windows) => PAS detecte (pas de faux positif)" {
+    $fp = @(); foreach($c in $script:CheatSoftware){ if(-not $c.GenericName){ $fp += $c.Patterns } }
+    (-not (Test-ProcessIsCheat 'steam.exe' 'C:\Program Files (x86)\Steam\steam.exe' '"C:\Program Files (x86)\Steam\steam.exe" -silent' $fp)) -and
+    (-not (Test-ProcessIsCheat 'explorer.exe' 'C:\Windows\explorer.exe' '' $fp))
+}
+Test-Case "Process cmdline : nom OU chemin de cheat distinctif detecte comme avant (pas de regression)" {
+    $fp = @(); foreach($c in $script:CheatSoftware){ if(-not $c.GenericName){ $fp += $c.Patterns } }
+    (Test-ProcessIsCheat 'engineowning.exe' '' '' $fp)
+}
+
 Test-Case "Defender historique VRAI-POSITIF : une detection au nom de cheat DISTINCTIF (engineowning) => FLAG (verdict signe Microsoft)" {
     $fp = Get-CheatFlagPatterns
     $a = Get-DefenderThreatAssessment @(@{ Name='HackTool:Win32/EngineOwning'; Path='C:\Users\x\Downloads\eo_loader.exe' }) $fp
