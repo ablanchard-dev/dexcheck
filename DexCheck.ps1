@@ -589,6 +589,7 @@ $script:ProbeMeaning = @{
     USBHIST   = @{ Shows="un boitier anti-recoil / device d'injection a deja ete branche sur cette machine (historique USB), meme s'il est debranche maintenant"; ProvesNot="un branchement passe n'est pas un usage en match ; PC d'occasion, frere/coloc, revendu - le modo fait expliquer le device"; ShowsFlag="un boitier anti-recoil au descripteur DISTINCTIF (Cronus/XIM/Titan/ReaSnow) a ete physiquement branche sur cette machine (descripteur firmware, non renommable) ; il a pu etre debranche juste avant le check"; ProvesNotFlag="le descripteur prouve le branchement PHYSIQUE, pas l'usage en match ; un PC d'occasion ou prete peut porter cette trace - le modo demande au joueur d'expliquer ce device, il ne l'accuse pas" }
     DEFTHREAT = @{ Shows="Windows Defender a deja detecte / mis en quarantaine une menace sur cette machine (trace qui survit a la suppression du binaire)"; ProvesNot="Defender flagge aussi cracks, keygens et trainers de jeux SOLO ; l'historique se purge tout seul (~30 j) donc un historique vide ne prouve rien"; ShowsFlag="Defender a detecte un cheat au nom DISTINCTIF connu (engineowning, etc.) sur cette machine - detection signee Microsoft qui survit a la suppression du binaire"; ProvesNotFlag="la detection prouve la presence passee du cheat sur la machine, pas son usage en match ; reste a confirmer par la VOD" }
     GPC       = @{ Shows="un fichier .gpc (script de l'ecosysteme Cronus) est present"; ProvesNot="une extension .gpc seule peut etre une collision ; sans le contenu GPC ce n'est pas confirme"; ShowsFlag="un script GPC CONFIRME par son contenu (set_val/combo/event_press) = macro anti-recoil ecrite pour un boitier Cronus Zen/Max"; ProvesNotFlag="le script prouve la preparation d'un anti-recoil Cronus, pas son usage en match ; le boitier lui-meme se voit a l'USB / au check visuel" }
+    SHADOW    = @{ Shows="une commande a supprime les points de restauration Windows (Shadow Copies) - la ou vivent des versions 'supprimees' de fichiers"; ProvesNot="supprimer les shadow copies est aussi une maintenance admin legitime (liberer de l'espace, reparer) ; la commande dans l'historique n'est pas une preuve de triche - a recouper" }
     WER       = @{ Shows="un programme a plante et Windows a garde son nom (WER)"; ProvesNot="un plantage n'est pas un usage en match ; tout plante sous Windows et un nom generique reste dual-use"; ShowsFlag="un cheat au nom DISTINCTIF a plante sur cette machine (WER l'a enregistre) = il tournait au moment du crash, meme efface depuis"; ProvesNotFlag="le crash prouve l'EXECUTION du cheat, pas le moment d'usage en partie ; le binaire efface n'est plus analysable - la trace WER, elle, a survecu" }
     MRU       = @{ Shows="un fichier a ete ouvert recemment (RecentDocs) ou une commande tapee dans Executer (RunMRU)"; ProvesNot="ouvrir ou taper un nom n'est pas jouer avec ; un nom generique reste dual-use"; ShowsFlag="un fichier/commande au nom de cheat DISTINCTIF a ete ouvert recemment ou tape dans Executer (trace HKCU qui survit a la suppression du fichier)"; ProvesNotFlag="ca prouve un acces recent au fichier nomme, pas un usage en match ; a confirmer par la VOD" }
     MOTW      = @{ Shows="un fichier present a ete telecharge depuis un domaine de cheat (URL gardee par Windows)"; ProvesNot="telecharger n'est pas executer en match ; mais la provenance + le fichier present est un signal fort"; ShowsFlag="un fichier present a ete telecharge DEPUIS un domaine/provider de cheat connu (Mark-of-the-Web) - cette provenance survit a l'effacement de l'historique du navigateur, le joueur ne peut pas l'effacer en vidant Chrome"; ProvesNotFlag="la provenance prouve le telechargement du cheat depuis sa source, pas son usage en match ; a confirmer par la VOD" }
@@ -1381,6 +1382,50 @@ function Probe-AntiForensic {
         New-ProbeResult -Id 'ANTIFOR' -Name 'Outils anti-forensic/wipe' -Status 'WARN' -Severity 1 -Summary "$($warnHits.Count) nettoyeur(s) courant(s) (dual-use, a verifier)" -Details $details
     } else {
         New-ProbeResult -Id 'ANTIFOR' -Name 'Outils anti-forensic/wipe' -Status 'OK' -Severity 0 -Summary "Aucun outil de wipe connu" -Details $details
+    }
+}
+
+function Get-ShadowWipeHits {
+    # Pur -> testable. Detecte une commande de SUPPRESSION des points de restauration (Volume Shadow
+    # Copies) dans l'historique - geste anti-forensic classique (on efface les sauvegardes ou vivent
+    # des versions "supprimees" de fichiers). On exige un VERBE de suppression + la cible shadow :
+    # LISTER n'est pas supprimer (vssadmin list shadows est ignore).
+    param([string[]]$Lines)
+    $hits = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Lines) { return ,$hits }
+    foreach ($l in $Lines) {
+        $s = [string]$l
+        if ([string]::IsNullOrEmpty($s)) { continue }
+        $low = $s.ToLowerInvariant()
+        if (($low -match 'delete|remove') -and ($low -match 'shadow')) { $hits.Add($s.Trim()) }
+    }
+    return ,$hits
+}
+
+function Probe-ShadowCopies {
+    $details = New-Object System.Collections.Generic.List[string]
+    # 1) Commande de suppression des shadow copies dans l'historique PowerShell (par-user, sans admin).
+    $lines = New-Object System.Collections.Generic.List[string]
+    $hist = Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt'
+    if (Test-Path -LiteralPath $hist) {
+        $txt = Get-FileBytesText $hist
+        if ($txt) { foreach ($l in ($txt -split "\r?\n")) { $lines.Add($l) } }
+    }
+    $wipe = Get-ShadowWipeHits $lines
+    # 2) Points de restauration presents (lecture read-only, admin ; NA propre sinon).
+    $count = $null
+    try { $count = @(Get-CimInstance Win32_ShadowCopy -ErrorAction Stop).Count } catch { }
+    if ($null -ne $count) { $details.Add("Points de restauration (Shadow Copies) presents : $count") }
+    else { $details.Add("Liste des Shadow Copies non lisible (admin requis) - non bloquant.") }
+    if ($wipe.Count -gt 0) {
+        foreach ($w in $wipe) { $details.Add("SUPPRESSION de shadow copies dans l'historique : $w") }
+        # WARN (pas FLAG) : supprimer les shadow copies est dual-use (maintenance admin legitime).
+        # v1 = PAS cable dans Get-EvasionProfile (decision moat differee v2) : un WARN isole reste A VERIFIER.
+        New-ProbeResult -Id 'SHADOW' -Name 'Points de restauration (Shadow Copies)' -Status 'WARN' -Severity 1 -Summary "$($wipe.Count) commande(s) de SUPPRESSION de shadow copies dans l'historique (anti-forensic ? a verifier)" -Details $details
+    } elseif ($null -ne $count) {
+        New-ProbeResult -Id 'SHADOW' -Name 'Points de restauration (Shadow Copies)' -Status 'INFO' -Severity 0 -Summary "$count point(s) de restauration ; aucune commande de suppression dans l'historique" -Details $details
+    } else {
+        New-ProbeResult -Id 'SHADOW' -Name 'Points de restauration (Shadow Copies)' -Status 'OK' -Severity 0 -Summary "Aucune commande de suppression de shadow copies dans l'historique" -Details $details
     }
 }
 
@@ -2904,6 +2949,7 @@ function Invoke-DexCheck {
         @{ Name='Cartes PCIe / DMA';             Fn=${function:Probe-DmaPci} }
         @{ Name='Posture de protection DMA (VBS/IOMMU)'; Fn=${function:Probe-DmaPosture} }
         @{ Name='Mur de fraicheur (timeline)';    Fn=${function:Probe-Timeline} }
+        @{ Name='Points de restauration (Shadow Copies)'; Fn=${function:Probe-ShadowCopies} }
         @{ Name='Securite systeme';              Fn=${function:Probe-SystemSecurity} }
         @{ Name='Exclusions Windows Defender';   Fn=${function:Probe-DefenderExclusions} }
         @{ Name='Drivers kernel (BYOVD)';        Fn=${function:Probe-KernelDrivers} }

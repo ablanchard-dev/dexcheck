@@ -45,6 +45,11 @@ if (-not (Test-Path $ScriptPath)) { Write-Host "Script introuvable : $ScriptPath
 $work = Join-Path $env:TEMP ("DexCheckTests_{0}" -f (Get-Random))
 New-Item -ItemType Directory -Force $work | Out-Null
 
+# Elevation : certaines preuves (dump USN brut) exigent l'admin. Les tests concernes SKIP proprement
+# hors admin (non bloquant) au lieu d'echouer - le CSV USN ne peut PAS exister sans lecture brute du volume.
+$adminE = $false
+try { $adminE = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator) } catch { }
+
 # ---------------------------------------------------------------------------
 Section "A. STATIQUE"
 
@@ -684,7 +689,8 @@ Test-Case "Nonce : le mot du modo est ecrit dans le rapport (donc plie dans le h
 $deepDir = Join-Path $work 'deep'
 $codeD = Invoke-Run -ExtraArgs @('-Deep','-FreeSpaceCapMB','64') -OutDir $deepDir
 Test-Case "Run -Deep : exit 0" { $codeD -eq 0 }
-Test-Case "Run -Deep : CSV USN genere" {
+Test-Case "Run -Deep : CSV USN genere (admin ; skip non bloquant hors admin - le dump USN exige la lecture brute du volume)" {
+    if (-not $adminE) { Write-Host "      (non-admin : le dump USN brut n'est pas possible -> skip non bloquant, relancer en admin pour la preuve)" -ForegroundColor DarkGray; return $true }
     @(Get-ChildItem $deepDir -Filter '*USN*.csv' -ErrorAction SilentlyContinue).Count -ge 1
 }
 
@@ -764,9 +770,6 @@ Section "E. VRAI-POSITIF (simulation : on plante la trace qu'un cheat laisse, on
 # fichier au nom "de cheat" puis le supprimer) et on prouve, sur le VRAI volume avec le VRAI lecteur
 # USN, que la sonde la capture. Token UNIQUE + benin (pas un vrai mot de cheat) => ne pollue pas les
 # vrais runs futurs (une suppression 'dexcheck-selftest-baitztoken' ne matche AUCUN pattern reel).
-
-$adminE = $false
-try { $adminE = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator) } catch { }
 
 Test-Case "USN vrai-positif : un fichier au nom de cheat SUPPRIME est capture end-to-end (coeur anti-wipe prouve, pas juste synthetique)" {
     if (-not $adminE) { Write-Host "      (admin requis pour lire l'USN brut -> skip non bloquant ; relancer en admin pour la preuve)" -ForegroundColor DarkGray; return $true }
@@ -850,6 +853,25 @@ Test-Case "7045 : 'aimbot-remover.sys' + un service legitime (NVIDIA) => AUCUN h
 Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits $null (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0) -and
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
+}
+
+Test-Case "Shadow VRAI-POSITIF : 'vssadmin delete shadows /all' dans l'historique => detecte (geste anti-forensic)" {
+    $h = Get-ShadowWipeHits @('cd C:\','vssadmin delete shadows /all /quiet','dir')
+    ($h.Count -eq 1)
+}
+Test-Case "Shadow : 'vssadmin list shadows' (lister != supprimer) => AUCUN hit (pas de faux positif)" {
+    (Get-ShadowWipeHits @('vssadmin list shadows','Get-CimInstance Win32_ShadowCopy')).Count -eq 0
+}
+Test-Case "Shadow : wmic shadowcopy delete + Remove Win32_ShadowCopy detectes ; lignes benignes/null => 0" {
+    ((Get-ShadowWipeHits @('wmic shadowcopy delete')).Count -eq 1) -and
+    ((Get-ShadowWipeHits @('Remove-CimInstance -Query "select * from Win32_ShadowCopy"')).Count -eq 1) -and
+    ((Get-ShadowWipeHits @('echo hello','ping google.com')).Count -eq 0) -and
+    ((Get-ShadowWipeHits $null).Count -eq 0)
+}
+Test-Case "Sonde Shadow Copies presente et jamais FLAG sur ce PC (WARN max sur suppression, sinon INFO/OK/NA)" {
+    $p = $statuses.GetEnumerator() | Where-Object { $_.Key -like '*Shadow*' } | Select-Object -First 1
+    if (-not $p) { Write-Host '      (sonde Shadow absente)' -ForegroundColor DarkYellow; return $false }
+    ($p.Value -in @('INFO','OK','WARN','NA'))
 }
 
 Test-Case "Mur de fraicheur VRAI-POSITIF : Windows vieux (700j) + 2 sources synchronisees demarrant tard => MUR detecte" {
