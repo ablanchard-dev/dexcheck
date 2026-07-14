@@ -1705,6 +1705,35 @@ function Probe-DmaPci {
     New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'INFO' -Severity 0 -Summary $sumInfo -Details $details
 }
 
+function Get-DmaPostureSummary {
+    # Pur -> testable. INFO STRICT (jamais un signal de triche) : contextualise la sonde PCIe -
+    # la machine est-elle plutot fermee ou ouverte a une carte DMA externe. Un OFF n'accuse
+    # personne (VBS / protection DMA sont OFF par defaut sur beaucoup de desktops sans Thunderbolt).
+    param([int]$VbsStatus, [bool]$DmaProtectionAvailable)
+    if ($VbsStatus -ge 2 -and $DmaProtectionAvailable) {
+        return "VBS actif + protection DMA disponible : machine plutot fermee a une carte DMA externe (contexte)"
+    } elseif ($VbsStatus -ge 2) {
+        return "VBS actif (protection DMA non confirmee) : partiellement durcie (contexte)"
+    } else {
+        return "VBS / protection DMA non active (defaut courant sur desktop) : une carte DMA serait moins genee - contexte, PAS une accusation"
+    }
+}
+
+function Probe-DmaPosture {
+    $details = New-Object System.Collections.Generic.List[string]
+    $dg = $null
+    try { $dg = Get-CimInstance -Namespace root/Microsoft/Windows/DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction Stop } catch {
+        return (New-ProbeResult -Id 'DMAPOSTURE' -Name 'Posture de protection DMA (VBS/IOMMU)' -Status 'NA' -Severity 0 -Summary "Posture DMA/VBS non lisible (DeviceGuard indisponible)" -Details @($_.Exception.Message.Split([char]10)[0]))
+    }
+    $vbs = 0; try { $vbs = [int]$dg.VirtualizationBasedSecurityStatus } catch { }
+    $avail = @(); try { $avail = @($dg.AvailableSecurityProperties) } catch { }
+    $dmaAvail = ($avail -contains 3)   # 3 = DMA Protection (mapping AvailableSecurityProperties)
+    $details.Add("VBS status=$vbs (0=off,1=configure,2=running) ; proprietes securite dispo=$($avail -join ',') (3=protection DMA).")
+    $details.Add("Note : l'etat exact de Kernel DMA Protection n'est pas expose proprement en user-mode ; on rapporte la posture VBS + disponibilite DMA. Toujours INFO (jamais une accusation).")
+    $sum = Get-DmaPostureSummary -VbsStatus $vbs -DmaProtectionAvailable $dmaAvail
+    New-ProbeResult -Id 'DMAPOSTURE' -Name 'Posture de protection DMA (VBS/IOMMU)' -Status 'INFO' -Severity 0 -Summary $sum -Details $details
+}
+
 function Probe-SystemSecurity {
     $details = New-Object System.Collections.Generic.List[string]
     $status='OK'; $sev=0; $flags = New-Object System.Collections.Generic.List[string]
@@ -2797,6 +2826,7 @@ function Invoke-DexCheck {
         @{ Name='Corbeille';                     Fn=${function:Probe-RecycleBin} }
         @{ Name='Hardware / DMA / capture';      Fn=${function:Probe-Hardware} }
         @{ Name='Cartes PCIe / DMA';             Fn=${function:Probe-DmaPci} }
+        @{ Name='Posture de protection DMA (VBS/IOMMU)'; Fn=${function:Probe-DmaPosture} }
         @{ Name='Securite systeme';              Fn=${function:Probe-SystemSecurity} }
         @{ Name='Exclusions Windows Defender';   Fn=${function:Probe-DefenderExclusions} }
         @{ Name='Drivers kernel (BYOVD)';        Fn=${function:Probe-KernelDrivers} }

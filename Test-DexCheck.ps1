@@ -852,6 +852,17 @@ Test-Case "7045 : null / liste vide => 0 hit (pas de crash)" {
     ((Get-DriverInstallHits @() (Get-PsHistoryFlagTargets) $script:VulnerableDrivers).Count -eq 0)
 }
 
+Test-Case "Posture DMA : INFO strict - VBS+DMA dispo => 'fermee', rien => 'moins genee', jamais une accusation" {
+    ((Get-DmaPostureSummary 2 $true) -match '(?i)fermee') -and
+    ((Get-DmaPostureSummary 0 $false) -match '(?i)moins genee') -and
+    ((Get-DmaPostureSummary 0 $false) -match '(?i)pas une accusation')
+}
+Test-Case "Sonde Posture DMA presente dans le rapport et TOUJOURS INFO/NA (jamais FLAG/WARN, c'est du contexte)" {
+    $p = $statuses.GetEnumerator() | Where-Object { $_.Key -like '*Posture de protection DMA*' } | Select-Object -First 1
+    if (-not $p) { Write-Host '      (sonde Posture DMA absente)' -ForegroundColor DarkYellow; return $false }
+    ($p.Value -in @('INFO','NA'))
+}
+
 Test-Case "MOTW VRAI-POSITIF end-to-end : un fichier avec Zone.Identifier pointant un domaine de cheat => FLAG (survit au wipe navigateur)" {
     $bait = Join-Path $env:TEMP ("DexMotwBait_{0}.exe" -f (Get-Random))
     Set-Content -LiteralPath $bait -Value 'MZ bait' -Encoding Ascii
