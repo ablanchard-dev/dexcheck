@@ -264,6 +264,22 @@ Test-Case "Get-MeaningLines : FLAG (nom distinctif) => formulation FERME, sans h
     }
     $ok
 }
+Test-Case "Get-MeaningLines : AUCUNE sonde ne fait planter le run en FLAG (StrictMode + cle ShowsFlag absente)" {
+    # Regression : sous Set-StrictMode -Version Latest, lire $m.ShowsFlag sur une hashtable qui
+    # n'a pas cette cle LEVE PropertyNotFoundStrict et tue DexCheck.ps1 entier. Seules quelques
+    # sondes ont une variante FLAG ; le test precedent n'exercait que celles-la, d'ou le trou.
+    $broken = @()
+    foreach ($id in $script:ProbeMeaning.Keys) {
+        foreach ($st in @('FLAG','WARN')) {
+            try {
+                $lines = @(Get-MeaningLines (New-ProbeResult -Id $id -Name x -Status $st -Severity 2))
+                if ($lines.Count -ne 2) { $broken += "$id/$st (lignes=$($lines.Count))" }
+            } catch { $broken += "$id/$st (THROW: $($_.FullyQualifiedErrorId))" }
+        }
+    }
+    if ($broken) { Write-Host ("      -> casse: {0}" -f ($broken -join ', ')) -ForegroundColor DarkYellow }
+    ($broken.Count -eq 0)
+}
 Test-Case "Get-VerdictReasoning : >=2 artefacts anti-wipe distinctifs => execution CONFIRMEE (pas un soupcon)" {
     $rs = @(
         (New-ProbeResult -Id 'EXEC'     -Name e -Status 'FLAG' -Severity 2),

@@ -603,8 +603,10 @@ function Get-MeaningLines {
     if ($null -eq $m) { return @() }
     # Sur un FLAG (= nom de cheat DISTINCTIF par construction, jamais generique), on affiche une
     # formulation FERME quand elle existe : pas de hedge "dual-use" qui ne s'applique pas ici.
-    $shows = if ($r.Status -eq 'FLAG' -and $m.ShowsFlag)     { $m.ShowsFlag }     else { $m.Shows }
-    $pnot  = if ($r.Status -eq 'FLAG' -and $m.ProvesNotFlag) { $m.ProvesNotFlag } else { $m.ProvesNot }
+    # ContainsKey et pas $m.ShowsFlag : sous StrictMode, lire une cle absente d'une hashtable
+    # LEVE PropertyNotFoundStrict et tue le run entier. Toutes les sondes n'ont pas de variante FLAG.
+    $shows = if ($r.Status -eq 'FLAG' -and $m.ContainsKey('ShowsFlag'))     { $m.ShowsFlag }     else { $m.Shows }
+    $pnot  = if ($r.Status -eq 'FLAG' -and $m.ContainsKey('ProvesNotFlag')) { $m.ProvesNotFlag } else { $m.ProvesNot }
     return @("> Montre : $shows", "> Ne prouve pas : $pnot")
 }
 
