@@ -1,5 +1,7 @@
 # DexCheck
 
+[![CI](https://github.com/ablanchard-dev/dexcheck/actions/workflows/ci.yml/badge.svg)](https://github.com/ablanchard-dev/dexcheck/actions/workflows/ci.yml)
+
 Forensic anti-cheat PC check for Call of Duty / Warzone, run live during a
 supervised screen-share. Two native scripts — Windows (PowerShell) and macOS
 (bash) — that read the machine, never modify it, and produce a timestamped
@@ -134,7 +136,7 @@ does not claim to catch a determined one. The visual setup check
 
 ## Tests
 
-`Test-DexCheck.ps1` runs 190 cases: static (UTF-8 BOM, parse), unit (detection
+`Test-DexCheck.ps1` runs 191 cases, on every push via CI: static (UTF-8 BOM, parse), unit (detection
 logic and verdict mapping), integration (real runs produce report + valid hash),
 regression (no probe ends in ERROR, no false SUSPECT on a clean PC), and a
 true-positive simulation (admin): it plants the trace a self-erasing cheat
