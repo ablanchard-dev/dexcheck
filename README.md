@@ -136,7 +136,7 @@ does not claim to catch a determined one. The visual setup check
 
 ## Tests
 
-`Test-DexCheck.ps1` runs 191 cases, on every push via CI: static (UTF-8 BOM, parse), unit (detection
+`Test-DexCheck.ps1` runs 230+ cases, on every push via CI (the exact count is the BILAN line the script prints, and it grows with the suite): static (UTF-8 BOM, parse), unit (detection
 logic and verdict mapping), integration (real runs produce report + valid hash),
 regression (no probe ends in ERROR, no false SUSPECT on a clean PC), and a
 true-positive simulation (admin): it plants the trace a self-erasing cheat

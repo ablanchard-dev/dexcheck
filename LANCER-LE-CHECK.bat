@@ -12,7 +12,20 @@ rem ============================================================================
 
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" 2>nul
+    rem  "if errorlevel 1" et PAS "if %%errorlevel%% neq 0" : dans un bloc entre
+    rem  parentheses, %%errorlevel%% est developpe au PARSING, donc il vaudrait
+    rem  encore le code de "net session". "if errorlevel 1" lit la valeur VIVE.
+    if errorlevel 1 (
+        echo.
+        echo   Elevation refusee ou impossible.
+        echo   Le check a besoin des droits administrateur pour LIRE le systeme.
+        echo   Il ne modifie rien.
+        echo.
+        echo   Relance ce fichier et clique OUI sur la fenetre bleue de Windows.
+        echo.
+        pause
+    )
     exit /b
 )
 

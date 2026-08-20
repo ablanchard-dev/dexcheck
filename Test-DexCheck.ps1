@@ -1,4 +1,4 @@
-﻿<#
+<#
     Test-DexCheck.ps1 - harnais de test du PC check forensic (gate "dev lead").
 
     Couvre 4 niveaux :
@@ -1104,10 +1104,260 @@ Test-Case "Launcher : appelle DexCheck.ps1 avec -NoElevate (pas de seconde eleva
     $invokes = ($script:BatText -split "\r?\n") | Where-Object { ($_ -match '(?i)powershell') -and ($_ -match '(?i)DexCheck\.ps1') }
     ($invokes.Count -ge 1) -and (@($invokes | Where-Object { $_ -notmatch '(?i)-NoElevate' }).Count -eq 0)
 }
-Test-Case "Launcher : se termine par pause (la fenetre reste ouverte quoi qu'il arrive)" {
+Test-Case "Launcher : se termine par pause (dernier chemin de sortie)" {
     $script:BatText.TrimEnd() -match '(?is)pause\s*$'
 }
+# Le test ci-dessus ne prouve QUE la fin du fichier. Le bloc d'elevation, lui,
+# fait "exit /b" et ne l'atteint jamais : si le joueur clique NON sur l'UAC, la
+# fenetre se fermait sans un mot -- exactement le bug que ce garde-fou est cense
+# empecher. On verifie donc que ce chemin-la a SON propre pause.
+Test-Case "Launcher : elevation refusee => message + pause (pas de fermeture muette)" {
+    if (-not $script:BatText) { return $false }
+    # bloc = de "net session" jusqu'au "exit /b" de l'elevation
+    $m = [regex]::Match($script:BatText, '(?is)net session.*?exit\s*/b')
+    if (-not $m.Success) { return $false }
+    $bloc = $m.Value
+    ($bloc -match '(?i)if\s+errorlevel\s+1') -and ($bloc -match '(?i)\bpause\b')
+}
+Test-Case "Launcher : le test d'echec d'elevation lit la valeur VIVE (if errorlevel, pas %errorlevel%)" {
+    # Dans un bloc entre parentheses, %errorlevel% est developpe au PARSING : il
+    # vaudrait encore le code de "net session" => fausse alerte "elevation refusee"
+    # a CHAQUE elevation reussie. Prouve par test : seul "if errorlevel 1" marche.
+    if (-not $script:BatText) { return $false }
+    $m = [regex]::Match($script:BatText, '(?is)net session.*?exit\s*/b')
+    if (-not $m.Success) { return $false }
+    $apresStart = ($m.Value -split '(?i)Start-Process')[-1]
+    # On inspecte du CODE : les lignes "rem" sont retirees, sinon le commentaire
+    # qui explique justement le piege ferait echouer le test.
+    $codeSeul = ($apresStart -split "\r?\n" | Where-Object { $_.Trim() -notmatch '^(?i)rem\b' }) -join "`n"
+    ($codeSeul -notmatch '%errorlevel%')
+}
 
+
+# --- Regression : la sonde anti-forensic concluait "Aucun outil de wipe connu" sans avoir pu regarder ---
+# Le FLAG de cette sonde repose ENTIEREMENT sur le Prefetch. Avec -ErrorAction SilentlyContinue,
+# un Prefetch illisible ou desactive etait indiscernable d'un Prefetch vide -> verdict OK.
+# Or couper le Prefetcher est precisement ce que ferait quelqu'un qui vient d'effacer ses traces.
+Test-Case "Get-AntiForensicAssessment : Prefetch lu + rien trouve => OK" {
+    $a = Get-AntiForensicAssessment -FlagCount 0 -WarnCount 0 -PrefetchState 'OK'
+    ($a.Status -eq 'OK' -and $a.Severity -eq 0)
+}
+Test-Case "Get-AntiForensicAssessment : Prefetch DESACTIVE => WARN, jamais OK" {
+    $a = Get-AntiForensicAssessment -FlagCount 0 -WarnCount 0 -PrefetchState 'DISABLED'
+    ($a.Status -eq 'WARN' -and $a.Severity -eq 1)
+}
+Test-Case "Get-AntiForensicAssessment : Prefetch ILLISIBLE => NA, jamais OK" {
+    $a = Get-AntiForensicAssessment -FlagCount 0 -WarnCount 0 -PrefetchState 'UNREADABLE'
+    ($a.Status -eq 'NA')
+}
+Test-Case "Get-AntiForensicAssessment : canal aveugle => le resume ne dit JAMAIS 'Aucun outil de wipe'" {
+    $d = Get-AntiForensicAssessment -FlagCount 0 -WarnCount 0 -PrefetchState 'DISABLED'
+    $u = Get-AntiForensicAssessment -FlagCount 0 -WarnCount 0 -PrefetchState 'UNREADABLE'
+    (($d.Summary -notmatch 'Aucun outil de wipe') -and ($u.Summary -notmatch 'Aucun outil de wipe'))
+}
+Test-Case "Get-AntiForensicAssessment : un wipe qui a tourne reste FLAG meme si le reste est aveugle" {
+    $a = Get-AntiForensicAssessment -FlagCount 1 -WarnCount 0 -PrefetchState 'OK'
+    ($a.Status -eq 'FLAG' -and $a.Severity -eq 2)
+}
+Test-Case "Get-AntiForensicAssessment : canal aveugle + nettoyeurs => les deux sont dits" {
+    $a = Get-AntiForensicAssessment -FlagCount 0 -WarnCount 2 -PrefetchState 'UNREADABLE'
+    ($a.Summary -match 'illisible' -and $a.Summary -match '2 nettoyeur')
+}
+
+# --- Regression : sans admin, la sonde Journaux certifiait "coherents" sans avoir pu lire ---
+# Lire le journal Security exige l'admin. L'event 1102 ("journal d'audit efface") est le FLAG
+# le plus fort de cette sonde (sev 3). Sans droits il est INVISIBLE, et la sonde renvoyait
+# OK/"Journaux coherents" -- alors que l'outil annonce lui-meme "certaines sondes seront N/A".
+Test-Case "Get-EventLogAssessment : tout lisible + rien trouve => OK" {
+    $a = Get-EventLogAssessment -Status 'OK' -Severity 0 -Summary 'Journaux coherents' -SecurityReadable $true -SystemReadable $true
+    ($a.Status -eq 'OK')
+}
+Test-Case "Get-EventLogAssessment : Security illisible => NA, jamais OK" {
+    $a = Get-EventLogAssessment -Status 'OK' -Severity 0 -Summary 'Journaux coherents' -SecurityReadable $false -SystemReadable $true
+    ($a.Status -eq 'NA')
+}
+Test-Case "Get-EventLogAssessment : Security illisible => le resume ne dit JAMAIS 'coherents'" {
+    $a = Get-EventLogAssessment -Status 'OK' -Severity 0 -Summary 'Journaux coherents' -SecurityReadable $false -SystemReadable $true
+    ($a.Summary -notmatch 'coherent' -and $a.Summary -match '1102')
+}
+Test-Case "Get-EventLogAssessment : System illisible => NA" {
+    $a = Get-EventLogAssessment -Status 'OK' -Severity 0 -Summary 'Journaux coherents' -SecurityReadable $true -SystemReadable $false
+    ($a.Status -eq 'NA')
+}
+Test-Case "Get-EventLogAssessment : un effacement DEJA vu prime sur l'illisibilite" {
+    $a = Get-EventLogAssessment -Status 'FLAG' -Severity 3 -Summary "Journaux d'evenements EFFACES (1)" -SecurityReadable $false -SystemReadable $false
+    ($a.Status -eq 'FLAG' -and $a.Severity -eq 3)
+}
+Test-Case "Test-EventLogReadable : un journal LISIBLE (Application) renvoie vrai" {
+    (Test-EventLogReadable -LogName 'Application') -eq $true
+}
+Test-Case "Test-EventLogReadable : journal INEXISTANT = 'on a pu regarder', pas un refus" {
+    (Test-EventLogReadable -LogName 'DexCheckJournalQuiNExistePas') -eq $true
+}
+
+# --- Regression : WER (preuve ANTI-WIPE) pouvait conclure "rien" sans avoir rien lu ---
+# Le nom du binaire qui a plante survit a la suppression du binaire : c'est la valeur de
+# cette sonde. Deux facons de mentir sans planter : 0 rapport lu (dossier absent/refuse)
+# annonce comme "aucun nom suspect", et un plafond de scan atteint sans le dire.
+Test-Case "Get-WerAssessment : rapports lus + rien trouve => OK" {
+    $a = Get-WerAssessment -FlagCount 0 -WarnCount 0 -Scanned 120
+    ($a.Status -eq 'OK' -and $a.Summary -match '120')
+}
+Test-Case "Get-WerAssessment : 0 rapport lu => NA, jamais OK" {
+    $a = Get-WerAssessment -FlagCount 0 -WarnCount 0 -Scanned 0
+    ($a.Status -eq 'NA')
+}
+Test-Case "Get-WerAssessment : 0 rapport lu => le resume ne dit JAMAIS 'aucun nom suspect'" {
+    $a = Get-WerAssessment -FlagCount 0 -WarnCount 0 -Scanned 0
+    ($a.Summary -notmatch 'aucun nom suspect' -and $a.Summary -match "n'a PAS ete examinee")
+}
+Test-Case "Get-WerAssessment : acces refuse => la raison est dite, pas juste 'absent'" {
+    $a = Get-WerAssessment -FlagCount 0 -WarnCount 0 -Scanned 0 -Denied 2
+    ($a.Summary -match 'refuse')
+}
+Test-Case "Get-WerAssessment : plafond atteint => le resume dit TRONQUE" {
+    $a = Get-WerAssessment -FlagCount 0 -WarnCount 0 -Scanned 3000 -Capped $true
+    ($a.Status -eq 'OK' -and $a.Summary -match 'TRONQUE')
+}
+Test-Case "Get-WerAssessment : scan complet => le resume l'affirme (pas d'ambiguite avec le plafond)" {
+    $a = Get-WerAssessment -FlagCount 0 -WarnCount 0 -Scanned 42 -Capped $false
+    ($a.Summary -match 'en entier' -and $a.Summary -notmatch 'TRONQUE')
+}
+Test-Case "Get-WerAssessment : un cheat trouve reste FLAG meme si le scan est tronque" {
+    $a = Get-WerAssessment -FlagCount 1 -WarnCount 0 -Scanned 3000 -Capped $true
+    ($a.Status -eq 'FLAG' -and $a.Severity -eq 2)
+}
+
+# Cas REEL mesure sur la machine d'Alex (sans admin) : ReportArchive et ReportQueue de
+# ProgramData sont refuses, seuls 2 rapports du profil utilisateur sont lisibles. Conclure
+# "aucun nom suspect" couvrirait une zone jamais ouverte -- celle qui garde l'historique
+# le plus long. Trouve en LANCANT la sonde, pas en la relisant.
+Test-Case "Get-WerAssessment : lecture PARTIELLE (refus) => NA, jamais OK" {
+    $a = Get-WerAssessment -FlagCount 0 -WarnCount 0 -Scanned 2 -Denied 2
+    ($a.Status -eq 'NA')
+}
+Test-Case "Get-WerAssessment : lecture partielle => ne pretend PAS avoir tout lu" {
+    $a = Get-WerAssessment -FlagCount 0 -WarnCount 0 -Scanned 2 -Denied 2
+    ($a.Summary -notmatch 'en entier' -and $a.Summary -match 'PARTIELLE' -and $a.Summary -match '2 dossier')
+}
+Test-Case "Get-WerAssessment : un cheat trouve prime sur une lecture partielle" {
+    $a = Get-WerAssessment -FlagCount 1 -WarnCount 0 -Scanned 2 -Denied 2
+    ($a.Status -eq 'FLAG')
+}
+
+# --- Regression : le DETAIL disait "non verifie", le RESUME affirmait le contraire ---
+# `testsigning ON` = drivers non signes autorises = levier BYOVD / carte DMA, FLAG sev 3.
+# Il se lit avec bcdedit, qui exige l'admin. Sans elevation la sonde ecrivait bien
+# "bcdedit : admin requis (non verifie)" dans les details, mais son resume restait
+# "Pas de mode test / signature contournee" -- et c'est le resume que lit un modo.
+Test-Case "Get-SystemSecurityAssessment : bcdedit lu + rien trouve => OK" {
+    $a = Get-SystemSecurityAssessment -FlagCount 0 -BcdChecked $true -SecureBootKnown $true
+    ($a.Status -eq 'OK' -and $a.Summary -match 'bcdedit et Secure Boot lus')
+}
+Test-Case "Get-SystemSecurityAssessment : bcdedit NON verifie => NA, jamais OK" {
+    $a = Get-SystemSecurityAssessment -FlagCount 0 -BcdChecked $false -SecureBootKnown $true
+    ($a.Status -eq 'NA')
+}
+Test-Case "Get-SystemSecurityAssessment : bcdedit non verifie => le resume ne PRETEND PAS l'absence" {
+    $a = Get-SystemSecurityAssessment -FlagCount 0 -BcdChecked $false -SecureBootKnown $true
+    ($a.Summary -notmatch 'Pas de mode test' -and $a.Summary -match 'NON verifies')
+}
+Test-Case "Get-SystemSecurityAssessment : testsigning ON reste FLAG sev3" {
+    $a = Get-SystemSecurityAssessment -FlagCount 1 -BcdChecked $true -SecureBootKnown $true
+    ($a.Status -eq 'FLAG' -and $a.Severity -eq 3)
+}
+Test-Case "Get-SystemSecurityAssessment : Secure Boot non lisible est dit, sans bloquer le verdict" {
+    $a = Get-SystemSecurityAssessment -FlagCount 0 -BcdChecked $true -SecureBootKnown $false
+    ($a.Status -eq 'OK' -and $a.Summary -match 'Secure Boot non lisible')
+}
+
+# --- Regression : 10 canaux jamais examines, et le verdict global disait CLEAN ---
+# Mesure sur la machine d'Alex sans admin : 20 OK / 8 INFO / 10 NA => Get-Verdict = CLEAN.
+# Les NA couvraient le coeur anti-wipe (PREFETCH, SHIMCACHE, DELFILES, USN, WER, EVTLOG...).
+# NA veut dire "non examine", pas "rien trouve" : CLEAN certifiait une zone jamais ouverte.
+# Pas de 5e verdict invente -- "A VERIFIER" veut deja dire "un humain doit regarder".
+function New-FakeResult { param($Id, $Status, $Sev = 0) [pscustomobject]@{ Id = $Id; Status = $Status; Severity = $Sev; Summary = "x"; Details = @() } }
+
+Test-Case "Get-Verdict : tout lu, rien trouve => CLEAN" {
+    $r = @((New-FakeResult 'PREFETCH' 'OK'), (New-FakeResult 'WER' 'OK'), (New-FakeResult 'EVTLOG' 'OK'))
+    (Get-Verdict $r) -eq 'CLEAN'
+}
+Test-Case "Get-Verdict : un canal decisif en NA => A VERIFIER, jamais CLEAN" {
+    $r = @((New-FakeResult 'PREFETCH' 'NA'), (New-FakeResult 'WER' 'OK'))
+    (Get-Verdict $r) -eq 'A VERIFIER'
+}
+Test-Case "Get-Verdict : les sondes -Deep en NA ne font PAS basculer un run rapide" {
+    $r = @((New-FakeResult 'DEEPFREE' 'NA'), (New-FakeResult 'DEEPUSN' 'NA'), (New-FakeResult 'PREFETCH' 'OK'))
+    (Get-Verdict $r) -eq 'CLEAN'
+}
+Test-Case "Get-Verdict : un FLAG prime toujours sur l'illisibilite" {
+    $r = @((New-FakeResult 'PREFETCH' 'NA'), (New-FakeResult 'CHEATS' 'FLAG' 2))
+    (Get-Verdict $r) -eq 'SUSPECT'
+}
+Test-Case "Get-Verdict : severite 3 reste ROUGE meme avec des canaux aveugles" {
+    $r = @((New-FakeResult 'PREFETCH' 'NA'), (New-FakeResult 'SECBOOT' 'FLAG' 3))
+    (Get-Verdict $r) -eq 'ROUGE'
+}
+Test-Case "Get-VerdictReasoning : les canaux non examines sont NOMMES" {
+    $r = @((New-FakeResult 'PREFETCH' 'NA'), (New-FakeResult 'WER' 'NA'), (New-FakeResult 'CHEATS' 'OK'))
+    $txt = (Get-VerdictReasoning $r) -join ' '
+    ($txt -match 'PREFETCH' -and $txt -match 'WER' -and $txt -match "n'ont PAS ete examines")
+}
+Test-Case "Get-VerdictReasoning : tout lu => pas de mention de canal aveugle" {
+    $r = @((New-FakeResult 'PREFETCH' 'OK'), (New-FakeResult 'WER' 'OK'))
+    $txt = (Get-VerdictReasoning $r) -join ' '
+    ($txt -match "rien de suspect dans ce qu'un check logiciel peut voir" -and $txt -notmatch 'decisif')
+}
+
+# --- Le rapport doit PROUVER quel script l'a produit, pas seulement l'annoncer ---
+# Avant le 15/08 l'en-tete affichait "v1.0.0" -- qu'un script modifie imprime aussi.
+# Le hash du RAPPORT existait deja (il rend le fichier sauvegarde infalsifiable) ;
+# il manquait l'autre moitie de la chaine : l'identite du script.
+Test-Case "Le script calcule sa propre empreinte au lancement" {
+    $sh = $script:SelfHash
+    ($null -ne $sh) -and ($sh.Length -gt 0)
+}
+Test-Case "L'empreinte du script est le VRAI SHA-256 du fichier" {
+    $vrai = (Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256).Hash
+    $script:SelfHash -eq $vrai
+}
+Test-Case "L'en-tete du rapport imprime la ligne Script" {
+    $src = [IO.File]::ReadAllText($ScriptPath)
+    $src -match '" Script     : "\s*\+\s*\$script:SelfHash'
+}
+Test-Case "Sans chemin sur disque, l'empreinte dit n/a au lieu d'inventer" {
+    $src = [IO.File]::ReadAllText($ScriptPath)
+    ($src -match "IsNullOrWhiteSpace\(\`$PSCommandPath\)") -and ($src -match "n/a \(script sans chemin")
+}
+
+# --- LA LOI "SEVERITE 3 = ROUGE TOUT SEUL" doit avoir exactement 4 declencheurs ---
+# Get-Verdict est teste (severite 3 injectee -> ROUGE) et chaque sonde est testee. Le MAILLON
+# ne l'etait pas : rien ne prouvait QUELLES sondes emettent reellement une severite 3. Une
+# sonde qui retomberait a 2 rendrait la loi fausse pendant que Get-Verdict resterait juste.
+# La severite 3 s'ecrit sous TROIS formes dans le script (Severity=3, -Severity 3, $sev=3) :
+# chercher le concept sous un seul de ses noms en manque une (verifie le 15/08).
+Test-Case "Exactement 4 declencheurs de severite 3 dans le script" {
+    $src = [IO.File]::ReadAllText($ScriptPath)
+    $a = ([regex]::Matches($src, 'Severity\s*=\s*3')).Count
+    $b = ([regex]::Matches($src, '-Severity\s+3')).Count
+    $c = ([regex]::Matches($src, '\$sev\s*=\s*3')).Count
+    ($a + $b + $c) -eq 4
+}
+Test-Case "Les 4 declencheurs sont bien ceux annonces (journaux effaces, testsigning, cheat live, cheat installe)" {
+    $src = [IO.File]::ReadAllText($ScriptPath)
+    $journaux    = [regex]::IsMatch($src, '\$sev\s*=\s*3;\s*\$summary\s*=\s*"Journaux d.evenements EFFACES')
+    $testsigning = [regex]::IsMatch($src, "function Get-SystemSecurityAssessment[\s\S]{0,900}?Status='FLAG';\s*Severity=3")
+    $cheatLive   = [regex]::IsMatch($src, "-Id 'NET'[^
+]*-Severity 3")
+    $cheatPose   = [regex]::IsMatch($src, "-Id 'CHEATS'[^
+]*-Severity 3")
+    $journaux -and $testsigning -and $cheatLive -and $cheatPose
+}
+Test-Case "Chacun des 4 suffit SEUL a rendre ROUGE (la loi, pas seulement la table)" {
+    $seul = { param($id) (Get-Verdict @((New-ProbeResult -Id $id -Name x -Status 'FLAG' -Severity 3))) }
+    (& $seul 'EVTLOG') -eq 'ROUGE' -and (& $seul 'SECBOOT') -eq 'ROUGE' -and `
+    (& $seul 'NET') -eq 'ROUGE' -and (& $seul 'CHEATS') -eq 'ROUGE'
+}
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==================================================================" -ForegroundColor Cyan

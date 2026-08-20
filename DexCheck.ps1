@@ -36,6 +36,13 @@ $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 $script:Version  = '1.0.0'
+# Empreinte du script lui-meme, calculee au lancement et imprimee dans le rapport.
+# `n/a` si le script est dot-source ou colle dans la console (pas de chemin sur disque) :
+# on prefere le dire plutot qu'afficher une valeur qui ne veut rien dire.
+$script:SelfHash = try {
+    if ([string]::IsNullOrWhiteSpace($PSCommandPath)) { 'n/a (script sans chemin sur disque)' }
+    else { (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256 -ErrorAction Stop).Hash }
+} catch { 'n/a (illisible)' }
 $script:SysDrive = $env:SystemDrive
 if ([string]::IsNullOrWhiteSpace($script:SysDrive)) { $script:SysDrive = 'C:' }
 
@@ -1310,10 +1317,46 @@ function Probe-Persistence {
     }
 }
 
+function Get-EventLogAssessment {
+    # Logique PURE testable. Point clef : lire le journal *Security* exige l'admin. Sans
+    # droits, l'event 1102 ("le journal d'audit a ete efface") -- le FLAG le plus fort de
+    # cette sonde, severite 3 -- est INVISIBLE. Conclure "Journaux coherents" reviendrait a
+    # certifier ce qu'on n'a pas pu regarder, alors que l'outil annonce lui-meme
+    # "certaines sondes seront N/A" en mode degrade. On tient cette promesse ici.
+    param(
+        [string]$Status, [int]$Severity, [string]$Summary,
+        [bool]$SecurityReadable = $true, [bool]$SystemReadable = $true
+    )
+    # un effacement DEJA constate reste prioritaire : on a vu, donc on parle.
+    if ($Status -ne 'OK') { return @{ Status=$Status; Severity=$Severity; Summary=$Summary } }
+    if (-not $SecurityReadable) {
+        return @{ Status='NA'; Severity=0; Summary="Journal Security ILLISIBLE (admin requis) : impossible de dire s'il a ete efface (event 1102 non verifiable)" }
+    }
+    if (-not $SystemReadable) {
+        return @{ Status='NA'; Severity=0; Summary="Journal System illisible : impossible de verifier un effacement (event 104)" }
+    }
+    @{ Status='OK'; Severity=$Severity; Summary=$Summary }
+}
+
+function Test-EventLogReadable {
+    # Get-WinEvent leve AUSSI une exception quand le journal est simplement VIDE. Confondre
+    # "vide" et "refuse" rendrait N/A toute machine saine. Seul un refus d'acces compte.
+    param([string]$LogName)
+    try { Get-WinEvent -LogName $LogName -MaxEvents 1 -ErrorAction Stop | Out-Null; return $true }
+    catch {
+        if ($_.Exception -is [System.UnauthorizedAccessException]) { return $false }
+        return $true   # "aucun evenement", journal absent, etc. : on a pu regarder
+    }
+}
+
 function Probe-EventLogs {
     $details = New-Object System.Collections.Generic.List[string]
     $status='OK'; $sev=0; $summary='Journaux coherents'
     $cleared = New-Object System.Collections.Generic.List[string]
+    $secReadable = Test-EventLogReadable -LogName 'Security'
+    $sysReadable = Test-EventLogReadable -LogName 'System'
+    if (-not $secReadable) { $details.Add("Journal Security NON LISIBLE (droits admin requis) : l'effacement d'audit (1102) n'a pas pu etre verifie.") }
+    if (-not $sysReadable) { $details.Add("Journal System NON LISIBLE : l'effacement (104) n'a pas pu etre verifie.") }
     # 1102 = Security log cleared, 104 = autre log cleared
     try {
         $e1102 = @(Get-WinEvent -FilterHashtable @{LogName='Security'; Id=1102} -MaxEvents 5 -ErrorAction SilentlyContinue)
@@ -1356,7 +1399,36 @@ function Probe-EventLogs {
         }
     } catch { }
     if ($status -eq 'OK' -and $details.Count -eq 0) { $details.Add("Aucun effacement de journal detecte.") }
-    New-ProbeResult -Id 'EVTLOG' -Name "Journaux d'evenements" -Status $status -Severity $sev -Summary $summary -Details $details
+    $a = Get-EventLogAssessment -Status $status -Severity $sev -Summary $summary -SecurityReadable $secReadable -SystemReadable $sysReadable
+    New-ProbeResult -Id 'EVTLOG' -Name "Journaux d'evenements" -Status $a.Status -Severity $a.Severity -Summary $a.Summary -Details $details
+}
+
+function Get-AntiForensicAssessment {
+    # Logique PURE testable. Le FLAG de cette sonde repose ENTIEREMENT sur le Prefetch :
+    # c'est la seule preuve qu'un outil de wipe a REELLEMENT tourne. Si ce canal est
+    # aveugle, on ne peut pas conclure "rien" -- et surtout pas ecrire "Aucun outil de
+    # wipe connu", qui se lit comme un blanc-seing.
+    # PrefetchState : OK = lu / DISABLED = Prefetcher coupe (geste anti-forensic en soi,
+    # donc WARN) / UNREADABLE = dossier absent ou refuse (on ne sait pas, donc NA).
+    param(
+        [int]$FlagCount, [int]$WarnCount,
+        [ValidateSet('OK','DISABLED','UNREADABLE')] [string]$PrefetchState = 'OK'
+    )
+    if ($FlagCount -gt 0) {
+        return @{ Status='FLAG'; Severity=2; Summary="$FlagCount outil(s) d'effacement securise QUI A TOURNE (wipe avant le check ?)" }
+    }
+    $suffix = ''
+    if ($WarnCount -gt 0) { $suffix = " ; par ailleurs $WarnCount nettoyeur(s) installe(s) (dual-use)" }
+    if ($PrefetchState -eq 'DISABLED') {
+        return @{ Status='WARN'; Severity=1; Summary="Prefetch DESACTIVE : la preuve qu'un wipe a tourne est supprimee a la source -- couper le Prefetcher est lui-meme un geste anti-forensic$suffix" }
+    }
+    if ($PrefetchState -eq 'UNREADABLE') {
+        return @{ Status='NA'; Severity=0; Summary="Prefetch illisible : impossible de dire si un outil de wipe a tourne (ce n'est PAS 'aucun')$suffix" }
+    }
+    if ($WarnCount -gt 0) {
+        return @{ Status='WARN'; Severity=1; Summary="$WarnCount nettoyeur(s) courant(s) (dual-use, a verifier)" }
+    }
+    @{ Status='OK'; Severity=0; Summary='Aucun outil de wipe connu, et la trace d execution (Prefetch) a bien ete lue' }
 }
 
 function Probe-AntiForensic {
@@ -1365,7 +1437,20 @@ function Probe-AntiForensic {
     $warnHits = New-Object System.Collections.Generic.List[string]  # nettoyeurs courants -> WARN
     $names = Get-UninstallEntries
     $pf = @()
-    try { $pf = @(Get-ChildItem "$script:SysDrive\Windows\Prefetch" -Filter *.pf -File -ErrorAction SilentlyContinue) } catch { }
+    # Le Prefetch est la SEULE source du FLAG ici : on doit savoir si on a pu le lire.
+    # Un -ErrorAction SilentlyContinue rendait un dossier illisible indiscernable d'un
+    # dossier vide -> la sonde concluait "Aucun outil de wipe connu" sans avoir regarde.
+    $pfState = 'OK'
+    try {
+        $ep = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters' -Name 'EnablePrefetcher' -ErrorAction Stop).EnablePrefetcher
+        if ($null -ne $ep -and [int]$ep -eq 0) { $pfState = 'DISABLED' }
+    } catch { }   # valeur absente = defaut Windows = Prefetcher actif
+    if ($pfState -eq 'OK') {
+        try { $pf = @(Get-ChildItem "$script:SysDrive\Windows\Prefetch" -Filter *.pf -File -ErrorAction Stop) }
+        catch { $pfState = 'UNREADABLE'; $details.Add("Prefetch non lisible : $($_.Exception.Message.Split([char]10)[0])") }
+    } else {
+        $details.Add("Prefetch DESACTIVE dans le registre (EnablePrefetcher = 0).")
+    }
     # Present (installe) != preuve : un outil de wipe INSTALLE = WARN (dual-use, hygiene). Seul un
     # wipe qui a EFFECTIVEMENT TOURNE (trace prefetch) = FLAG = "efface juste avant le check".
     foreach($n in $names){
@@ -1378,13 +1463,8 @@ function Probe-AntiForensic {
     }
     foreach($h in $flagHits){ $details.Add("  $h") }
     foreach($h in $warnHits){ $details.Add("  $h") }
-    if ($flagHits.Count -gt 0) {
-        New-ProbeResult -Id 'ANTIFOR' -Name 'Outils anti-forensic/wipe' -Status 'FLAG' -Severity 2 -Summary "$($flagHits.Count) outil(s) d'effacement securise QUI A TOURNE (wipe avant le check ?)" -Details $details
-    } elseif ($warnHits.Count -gt 0) {
-        New-ProbeResult -Id 'ANTIFOR' -Name 'Outils anti-forensic/wipe' -Status 'WARN' -Severity 1 -Summary "$($warnHits.Count) nettoyeur(s) courant(s) (dual-use, a verifier)" -Details $details
-    } else {
-        New-ProbeResult -Id 'ANTIFOR' -Name 'Outils anti-forensic/wipe' -Status 'OK' -Severity 0 -Summary "Aucun outil de wipe connu" -Details $details
-    }
+    $a = Get-AntiForensicAssessment -FlagCount $flagHits.Count -WarnCount $warnHits.Count -PrefetchState $pfState
+    New-ProbeResult -Id 'ANTIFOR' -Name 'Outils anti-forensic/wipe' -Status $a.Status -Severity $a.Severity -Summary $a.Summary -Details $details
 }
 
 function Get-ShadowWipeHits {
@@ -1781,13 +1861,32 @@ function Probe-DmaPosture {
     New-ProbeResult -Id 'DMAPOSTURE' -Name 'Posture de protection DMA (VBS/IOMMU)' -Status 'INFO' -Severity 0 -Summary $sum -Details $details
 }
 
+function Get-SystemSecurityAssessment {
+    # Logique PURE testable. `testsigning ON` = drivers non signes autorises = le levier
+    # classique du BYOVD et des cartes DMA : c'est un FLAG severite 3. Il se lit avec
+    # bcdedit, QUI EXIGE L'ADMIN. Sans elevation la sonde ecrivait bien "non verifie" dans
+    # les details -- mais son RESUME affirmait quand meme "Pas de mode test / signature
+    # contournee". Le detail etait honnete, le titre mentait ; c'est le titre que lit un modo.
+    param([int]$FlagCount, [bool]$BcdChecked = $true, [bool]$SecureBootKnown = $true)
+    if ($FlagCount -gt 0) { return @{ Status='FLAG'; Severity=3 } }
+    if (-not $BcdChecked) {
+        return @{ Status='NA'; Severity=0; Summary="testsigning / nointegritychecks NON verifies (bcdedit exige l'admin) : le contournement de signature n'a pas ete controle" }
+    }
+    if (-not $SecureBootKnown) {
+        return @{ Status='OK'; Severity=0; Summary="Pas de mode test / signature contournee (Secure Boot non lisible : BIOS legacy ou non applicable)" }
+    }
+    @{ Status='OK'; Severity=0; Summary="Pas de mode test / signature contournee (bcdedit et Secure Boot lus)" }
+}
+
 function Probe-SystemSecurity {
     $details = New-Object System.Collections.Generic.List[string]
     $status='OK'; $sev=0; $flags = New-Object System.Collections.Generic.List[string]
+    $bcdChecked = $false; $sbKnown = $false
     # Secure Boot
     try {
         $sb = Confirm-SecureBootUEFI -ErrorAction Stop
         $details.Add("Secure Boot : $sb")
+        $sbKnown = $true
         if (-not $sb) { $details.Add("  (desactive - a noter)") }
     } catch { $details.Add("Secure Boot : non applicable (BIOS legacy ou non lisible)") }
     # bcdedit testsigning / nointegritychecks
@@ -1799,6 +1898,7 @@ function Probe-SystemSecurity {
             if ($bcd -match '(?im)^\s*testsigning\s+(yes|oui|ja|si|sim|on)\b') { $flags.Add("testsigning ON (drivers non signes autorises)") }
             if ($bcd -match '(?im)^\s*nointegritychecks\s+(yes|oui|ja|si|sim|on)\b') { $flags.Add("nointegritychecks ON") }
             $details.Add("bcdedit testsigning/nointegritychecks inspectes.")
+            $bcdChecked = $true
         } catch { $details.Add("bcdedit illisible.") }
     } else {
         $details.Add("bcdedit : admin requis (non verifie).")
@@ -1808,12 +1908,12 @@ function Probe-SystemSecurity {
         $tpm = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassName Win32_Tpm -ErrorAction SilentlyContinue
         if ($null -ne $tpm) { $details.Add("TPM present : IsEnabled=$($tpm.IsEnabled_InitialValue)") } else { $details.Add("TPM : non detecte") }
     } catch { }
+    $a = Get-SystemSecurityAssessment -FlagCount $flags.Count -BcdChecked $bcdChecked -SecureBootKnown $sbKnown
     if ($flags.Count -gt 0) {
         foreach($f in $flags){ $details.Add("  FLAG: $f") }
-        $status='FLAG'; $sev=3
-        New-ProbeResult -Id 'SECBOOT' -Name 'Securite systeme' -Status $status -Severity $sev -Summary ($flags -join ' ; ') -Details $details
+        New-ProbeResult -Id 'SECBOOT' -Name 'Securite systeme' -Status $a.Status -Severity $a.Severity -Summary ($flags -join ' ; ') -Details $details
     } else {
-        New-ProbeResult -Id 'SECBOOT' -Name 'Securite systeme' -Status 'OK' -Severity 0 -Summary "Pas de mode test / signature contournee" -Details $details
+        New-ProbeResult -Id 'SECBOOT' -Name 'Securite systeme' -Status $a.Status -Severity $a.Severity -Summary $a.Summary -Details $details
     }
 }
 
@@ -2079,18 +2179,47 @@ function Get-WerCrashHits {
     return @{ Flag=$flag; Warn=$warn }
 }
 
+function Get-WerAssessment {
+    # Logique PURE testable. WER est une preuve ANTI-WIPE : le nom du binaire qui a plante
+    # survit a la suppression du binaire. Deux facons de mentir sans planter :
+    #  - 0 rapport lu (dossier absent ou acces refuse) et on annonce "aucun nom suspect" ;
+    #  - plafond de scan atteint : on n'a vu qu'une partie et on conclut sur le tout.
+    param(
+        [int]$FlagCount, [int]$WarnCount, [int]$Scanned,
+        [bool]$Capped = $false, [int]$Denied = 0
+    )
+    if ($FlagCount -gt 0) { return @{ Status='FLAG'; Severity=2; Summary="$FlagCount cheat(s) au nom distinctif ont plante sur cette machine (WER)" } }
+    if ($WarnCount -gt 0) { return @{ Status='WARN'; Severity=1; Summary="$WarnCount nom(s) generique(s) dans les crashs WER - a verifier" } }
+    if ($Scanned -eq 0) {
+        $why = 'dossiers WER absents'
+        if ($Denied -gt 0) { $why = "$Denied dossier(s) WER refuse(s) a la lecture" }
+        return @{ Status='NA'; Severity=0; Summary="Aucun rapport WER n'a pu etre lu ($why) : cette preuve anti-wipe n'a PAS ete examinee" }
+    }
+    if ($Denied -gt 0) {
+        # Cas REEL mesure sur la machine d'Alex sans admin : l'archive machine
+        # (ProgramData\...\WER\ReportArchive + ReportQueue) est refusee, seuls les 2
+        # rapports du profil utilisateur sont lus. Conclure "aucun nom suspect" couvrirait
+        # une zone jamais ouverte -- justement celle qui garde l'historique le plus long.
+        return @{ Status='NA'; Severity=0; Summary="Lecture PARTIELLE : $Scanned rapport(s) lu(s) mais $Denied dossier(s) WER refuse(s) (admin requis) - rien de suspect PARMI CEUX LUS, la zone refusee reste inconnue" }
+    }
+    if ($Capped) {
+        return @{ Status='OK'; Severity=0; Summary="$Scanned crashs WER analyses (PLAFOND ATTEINT : le scan est TRONQUE, d'autres rapports n'ont pas ete lus), aucun nom suspect parmi eux" }
+    }
+    @{ Status='OK'; Severity=0; Summary="$Scanned crashs WER analyses (dossiers lus en entier), aucun nom suspect" }
+}
+
 function Probe-WerCrashes {
     $details = New-Object System.Collections.Generic.List[string]
     $names = New-Object System.Collections.Generic.List[string]
     $roots = @("$env:ProgramData\Microsoft\Windows\WER","$env:LOCALAPPDATA\Microsoft\Windows\WER") | Where-Object { $_ } | Select-Object -Unique
-    $scanned = 0; $cap = 3000
+    $scanned = 0; $cap = 3000; $capped = $false; $denied = 0
     foreach ($r in $roots) {
         foreach ($sub in @('ReportArchive','ReportQueue')) {
             $d = Join-Path $r $sub
             if (-not (Test-Path $d)) { continue }
             try {
-                foreach ($rep in (Get-ChildItem -LiteralPath $d -Directory -ErrorAction SilentlyContinue)) {
-                    if ($scanned -ge $cap) { break }
+                foreach ($rep in (Get-ChildItem -LiteralPath $d -Directory -ErrorAction Stop)) {
+                    if ($scanned -ge $cap) { $capped = $true; break }
                     $scanned++
                     $names.Add($rep.Name)   # dossier "AppCrash_<exe>_<hash>_..." => porte le nom du binaire
                     $wer = Join-Path $rep.FullName 'Report.wer'
@@ -2102,20 +2231,18 @@ function Probe-WerCrashes {
                         } catch { }
                     }
                 }
-            } catch { }
+            } catch { $denied++; $details.Add("Dossier WER non lisible : $d ($($_.Exception.Message.Split([char]10)[0]))") }
         }
     }
     $details.Add("$scanned rapport(s) d'erreur Windows (WER) analyse(s) - le nom du binaire qui a plante survit a sa suppression.")
+    if ($capped) { $details.Add("PLAFOND DE SCAN ATTEINT ($cap) : tous les rapports n'ont PAS ete lus. Un 'rien trouve' ne porte que sur ceux-la.") }
     $a = Get-WerCrashHits -Names $names -FlagPatterns (Get-CheatFlagPatterns) -WarnPatterns $script:CheatWarnWords
-    if ($a.Flag.Count -gt 0) {
-        foreach ($x in ($a.Flag | Select-Object -Unique)) { $details.Add("CHEAT DISTINCTIF qui a plante (WER) : $x") }
-        New-ProbeResult -Id 'WER' -Name "Rapports d'erreur (WER, anti-wipe)" -Status 'FLAG' -Severity 2 -Summary "$(@($a.Flag | Select-Object -Unique).Count) cheat(s) au nom distinctif ont plante sur cette machine (WER)" -Details $details
-    } elseif ($a.Warn.Count -gt 0) {
-        foreach ($x in ($a.Warn | Select-Object -Unique)) { $details.Add("Nom generique/categorie dans un crash (dual-use) : $x") }
-        New-ProbeResult -Id 'WER' -Name "Rapports d'erreur (WER, anti-wipe)" -Status 'WARN' -Severity 1 -Summary "$(@($a.Warn | Select-Object -Unique).Count) nom(s) generique(s) dans les crashs WER - a verifier" -Details $details
-    } else {
-        New-ProbeResult -Id 'WER' -Name "Rapports d'erreur (WER, anti-wipe)" -Status 'OK' -Severity 0 -Summary "$scanned crashs WER analyses, aucun nom suspect" -Details $details
-    }
+    $uFlag = @($a.Flag | Select-Object -Unique)
+    $uWarn = @($a.Warn | Select-Object -Unique)
+    foreach ($x in $uFlag) { $details.Add("CHEAT DISTINCTIF qui a plante (WER) : $x") }
+    foreach ($x in $uWarn) { $details.Add("Nom generique/categorie dans un crash (dual-use) : $x") }
+    $v = Get-WerAssessment -FlagCount $uFlag.Count -WarnCount $uWarn.Count -Scanned $scanned -Capped $capped -Denied $denied
+    New-ProbeResult -Id 'WER' -Name "Rapports d'erreur (WER, anti-wipe)" -Status $v.Status -Severity $v.Severity -Summary $v.Summary -Details $details
 }
 
 function ConvertFrom-RecentDocValue {
@@ -2625,6 +2752,12 @@ function Get-EvasionProfile {
     return [pscustomobject]@{ Strong = $strong; Weak = $weak; Total = ($strong.Count + $weak.Count); Escalate = $escalate }
 }
 
+# Canaux de preuve DECISIFS : si l'un d'eux n'a pas pu etre lu (NA), un "CLEAN" affirmerait
+# l'absence de traces dans un endroit qu'on n'a jamais ouvert. Les sondes -Deep (DEEPFREE,
+# DEEPUSN) sont volontairement EXCLUES : elles sont NA sur tout run rapide, meme en admin,
+# et les inclure ferait basculer chaque check normal en "A VERIFIER" pour rien.
+$script:CoreEvidenceIds = @('PREFETCH','SHIMCACHE','DELFILES','USN','EXEC','PCA','ANTIFOR','WER','EVTLOG','SECBOOT')
+
 function Get-Verdict {
     param($results)
     $crit = @($results | Where-Object { $_.Severity -ge 3 })
@@ -2647,6 +2780,13 @@ function Get-Verdict {
         if ((Get-EvasionProfile $results).Escalate) { return 'SUSPECT' }
         return 'A VERIFIER'
     }
+    # Rien n'a bouge -- mais a-t-on seulement pu REGARDER ? Un canal decisif en NA (typiquement
+    # un run sans admin : prefetch, shimcache, USN, journaux, WER...) veut dire "non examine",
+    # pas "rien trouve". Rendre CLEAN la reviendrait a certifier une zone jamais ouverte, et
+    # l'outil annonce deja "certaines sondes seront N/A". On ne cree PAS de 5e verdict :
+    # "A VERIFIER" veut deja dire "un humain doit regarder", ce qui est exactement le cas.
+    $blind = @($results | Where-Object { $_.Status -eq 'NA' -and $script:CoreEvidenceIds -contains [string]$_.Id })
+    if ($blind.Count -gt 0) { return 'A VERIFIER' }
     return 'CLEAN'
 }
 
@@ -2682,9 +2822,17 @@ function Get-VerdictReasoning {
     $warns = @($results | Where-Object { $_.Status -eq 'WARN' })
     $prof  = Get-EvasionProfile $results
     $out = New-Object System.Collections.Generic.List[string]
+    $blind = @($results | Where-Object { $_.Status -eq 'NA' -and $script:CoreEvidenceIds -contains [string]$_.Id })
     if ($flags.Count -eq 0 -and $warns.Count -eq 0) {
-        $out.Add("Aucune sonde n'a leve de drapeau : rien de suspect dans ce qu'un check logiciel peut voir.")
+        if ($blind.Count -gt 0) {
+            $out.Add("Aucune sonde n'a leve de drapeau PARMI CELLES QUI ONT PU LIRE. Mais $($blind.Count) canal(aux) de preuve decisif(s) n'ont PAS ete examines : $(($blind | ForEach-Object { $_.Id }) -join ', ') -- typiquement un check lance sans droits admin. 'Rien trouve' ne porte donc PAS sur ces zones.")
+        } else {
+            $out.Add("Aucune sonde n'a leve de drapeau : rien de suspect dans ce qu'un check logiciel peut voir.")
+        }
     } else {
+        if ($blind.Count -gt 0) {
+            $out.Add("$($blind.Count) canal(aux) de preuve decisif(s) n'ont PAS pu etre lus : $(($blind | ForEach-Object { $_.Id }) -join ', ') -- le tableau est incomplet.")
+        }
         $out.Add("Ont bouge : $($flags.Count) drapeau(x) rouge(s), $($warns.Count) point(s) a verifier.")
         # Corroboration : plusieurs artefacts anti-wipe INDEPENDANTS qui pointent un exe de triche
         # au nom distinctif = execution confirmee, pas un simple soupcon (une trace isolee peut etre
@@ -2736,8 +2884,21 @@ function Write-Reports {
     [void]$sb.AppendLine(" DEXCHECK - PC CHECK FORENSIC   v$script:Version   -   by DrDexter")
     [void]$sb.AppendLine("==================================================================")
     [void]$sb.AppendLine(" Machine    : $env:COMPUTERNAME  /  Utilisateur : $env:USERNAME")
-    [void]$sb.AppendLine(" Date       : $start")
+    # ISO 8601 : un rapport forensic est lu par des gens dont on ne connait pas la
+    # locale, et `"$start"` rendait le format US (08/15/2026) sur un rapport francais.
+    # 2026-08-15 ne peut etre confondu avec rien.
+    [void]$sb.AppendLine(" Date       : " + $start.ToString('yyyy-MM-dd HH:mm:ss'))
     if (-not [string]::IsNullOrWhiteSpace($script:Nonce)) { [void]$sb.AppendLine(" Nonce      : $script:Nonce   (dicte par le modo => ce rapport a ete genere LIVE pour cette session)") }
+    # Empreinte du SCRIPT qui a produit ce rapport. Sans elle, le rapport annonce sa
+    # version ("v1.0.0") sans la PROUVER : un script modifie imprime la meme ligne. Avec
+    # elle, le modo compare a l'empreinte officielle et sait s'il lit la sortie du vrai
+    # DexCheck. C'est la moitie manquante de la chaine de confiance -- l'autre moitie
+    # (le hash du rapport lui-meme) existait deja.
+    # LIMITE ASSUMEE : un script hostile peut imprimer l'empreinte officielle au lieu de
+    # la sienne. Ca n'arrete pas un faussaire determine ; ca rend une modification naive
+    # visible et ca permet de VERIFIER un run honnete. La confiance de fond reste
+    # "le modo fournit le script".
+    [void]$sb.AppendLine(" Script     : " + $script:SelfHash)
     [void]$sb.AppendLine(" Mode       : " + $(if($deep){'APPROFONDI (-Deep)'}else{'rapide'}) + $(if($degraded){'  [DEGRADE - sans admin]'}else{''}))
     [void]$sb.AppendLine(" VERDICT    : $verdict")
     [void]$sb.AppendLine(" ACTION     : $(Get-VerdictAction $verdict)")
@@ -2802,7 +2963,7 @@ h1{font-size:20px}.v{display:inline-block;padding:4px 12px;border-radius:6px;col
 table{border-collapse:collapse;width:100%;margin-top:16px}td{border-bottom:1px solid #1f2430;padding:6px 8px;vertical-align:top}
 .lim{margin-top:20px;color:#9ca3af;font-size:12px;border-top:1px solid #1f2430;padding-top:12px}</style></head><body>
 <h1>DEXCHECK - PC Check forensic <span style='color:#6b7280;font-size:13px'>v$script:Version &middot; by DrDexter</span></h1>
-<p>Machine <b>$env:COMPUTERNAME</b> / $env:USERNAME &middot; $start$(if(-not [string]::IsNullOrWhiteSpace($script:Nonce)){" &middot; nonce <b>$(ConvertTo-HtmlText $script:Nonce)</b>"}) &middot; Verdict : <span class='v'>$verdict</span></p>
+<p>Machine <b>$env:COMPUTERNAME</b> / $env:USERNAME &middot; $($start.ToString('yyyy-MM-dd HH:mm:ss'))$(if(-not [string]::IsNullOrWhiteSpace($script:Nonce)){" &middot; nonce <b>$(ConvertTo-HtmlText $script:Nonce)</b>"}) &middot; Verdict : <span class='v'>$verdict</span></p>
 <p style='color:#cbd5e1;font-size:13px;max-width:900px'>$((Get-VerdictReasoning $results | ForEach-Object { ConvertTo-HtmlText $_ }) -join '<br>')</p>
 <table>$($rows.ToString())</table>
 <div class='lim'>$limHtml</div></body></html>
