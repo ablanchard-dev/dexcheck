@@ -590,7 +590,7 @@ $script:ProbeMeaning = @{
     INPUT     = @{ Shows="un outil de remap/anti-recoil ou un device (Cronus/XIM) est present"; ProvesNot="manette et remap = dual-use legitime ; seul le hardware anti-recoil est un signal fort" }
     VM        = @{ Shows="le check tourne peut-etre dans une VM pendant qu'on joue sur l'hote (evasion screenshare)"; ProvesNot="Hyper-V/VBS/WSL sont presents sur des machines reelles Win11 - a confirmer visuellement" }
     DEFENDER  = @{ Shows="une exclusion ou une protection coupee peut cacher un cheat de l'antivirus"; ProvesNot="beaucoup d'exclusions sont legitimes (jeux, dev) - le contexte compte" }
-    KDRV      = @{ Shows="un driver kernel non signe ou connu abusable (BYOVD) = acces kernel possible pour un cheat"; ProvesNot="ces drivers sont souvent dual-use (Afterburner/HWiNFO/monitoring) - a confirmer" }
+    KDRV      = @{ Shows="un driver kernel non signe, connu abusable (BYOVD), ou enregistre depuis un dossier UTILISATEUR (Temp/Downloads = residu d'un mapper type kdmapper) = acces kernel possible pour un cheat/spoofer"; ProvesNot="ces drivers sont souvent dual-use (Afterburner/HWiNFO/monitoring) - a confirmer ; un service qui pointe vers Temp est en revanche rarement legitime" }
     DRVINST   = @{ Shows="un driver/service abusable (BYOVD) a ete installe, avec sa date - complete KDRV qui ne voit que les drivers charges maintenant"; ProvesNot="beaucoup de drivers legitimes s'installent en service (Afterburner/HWiNFO/anti-triche) ; la date d'install seule ne prouve pas un usage cheat"; ShowsFlag="un service/driver au nom de cheat DISTINCTIF a ete installe a telle date (trace SCM qui survit a la suppression du binaire)"; ProvesNotFlag="le nom distinctif + la date d'install sont solides ; reste a confirmer l'usage en match (VOD)" }
     INJECT    = @{ Shows="un point d'injection DLL (AppInit/AppCert/IFEO) est positionne = un overlay/cheat peut se charger dans le jeu"; ProvesNot="quelques outils legitimes en posent - valeur non vide = a verifier, pas a bannir" }
     USBHIST   = @{ Shows="un boitier anti-recoil / device d'injection a deja ete branche sur cette machine (historique USB), meme s'il est debranche maintenant"; ProvesNot="un branchement passe n'est pas un usage en match ; PC d'occasion, frere/coloc, revendu - le modo fait expliquer le device"; ShowsFlag="un boitier anti-recoil au descripteur DISTINCTIF (Cronus/XIM/Titan/ReaSnow) a ete physiquement branche sur cette machine (descripteur firmware, non renommable) ; il a pu etre debranche juste avant le check"; ProvesNotFlag="le descripteur prouve le branchement PHYSIQUE, pas l'usage en match ; un PC d'occasion ou prete peut porter cette trace - le modo demande au joueur d'expliquer ce device, il ne l'accuse pas" }
@@ -598,8 +598,10 @@ $script:ProbeMeaning = @{
     GPC       = @{ Shows="un fichier .gpc (script de l'ecosysteme Cronus) est present"; ProvesNot="une extension .gpc seule peut etre une collision ; sans le contenu GPC ce n'est pas confirme"; ShowsFlag="un script GPC CONFIRME par son contenu (set_val/combo/event_press) = macro anti-recoil ecrite pour un boitier Cronus Zen/Max"; ProvesNotFlag="le script prouve la preparation d'un anti-recoil Cronus, pas son usage en match ; le boitier lui-meme se voit a l'USB / au check visuel" }
     SHADOW    = @{ Shows="une commande a supprime les points de restauration Windows (Shadow Copies) - la ou vivent des versions 'supprimees' de fichiers"; ProvesNot="supprimer les shadow copies est aussi une maintenance admin legitime (liberer de l'espace, reparer) ; la commande dans l'historique n'est pas une preuve de triche - a recouper" }
     WER       = @{ Shows="un programme a plante et Windows a garde son nom (WER)"; ProvesNot="un plantage n'est pas un usage en match ; tout plante sous Windows et un nom generique reste dual-use"; ShowsFlag="un cheat au nom DISTINCTIF a plante sur cette machine (WER l'a enregistre) = il tournait au moment du crash, meme efface depuis"; ProvesNotFlag="le crash prouve l'EXECUTION du cheat, pas le moment d'usage en partie ; le binaire efface n'est plus analysable - la trace WER, elle, a survecu" }
-    MRU       = @{ Shows="un fichier a ete ouvert recemment (RecentDocs) ou une commande tapee dans Executer (RunMRU)"; ProvesNot="ouvrir ou taper un nom n'est pas jouer avec ; un nom generique reste dual-use"; ShowsFlag="un fichier/commande au nom de cheat DISTINCTIF a ete ouvert recemment ou tape dans Executer (trace HKCU qui survit a la suppression du fichier)"; ProvesNotFlag="ca prouve un acces recent au fichier nomme, pas un usage en match ; a confirmer par la VOD" }
+    MRU       = @{ Shows="un fichier a ete ouvert recemment (RecentDocs), une commande tapee dans Executer (RunMRU), ou un exe a ete lance (MuiCache garde son chemin)"; ProvesNot="ouvrir ou taper un nom n'est pas jouer avec ; un nom generique reste dual-use"; ShowsFlag="un fichier/commande/exe au nom de cheat DISTINCTIF a ete ouvert, tape dans Executer ou lance (traces HKCU RecentDocs/RunMRU/MuiCache qui survivent a la suppression du fichier)"; ProvesNotFlag="ca prouve un acces recent au fichier nomme, pas un usage en match ; a confirmer par la VOD" }
     MOTW      = @{ Shows="un fichier present a ete telecharge depuis un domaine de cheat (URL gardee par Windows)"; ProvesNot="telecharger n'est pas executer en match ; mais la provenance + le fichier present est un signal fort"; ShowsFlag="un fichier present a ete telecharge DEPUIS un domaine/provider de cheat connu (Mark-of-the-Web) - cette provenance survit a l'effacement de l'historique du navigateur, le joueur ne peut pas l'effacer en vidant Chrome"; ProvesNotFlag="la provenance prouve le telechargement du cheat depuis sa source, pas son usage en match ; a confirmer par la VOD" }
+    HWID      = @{ Shows="l'identite materielle que Windows presente (SMBIOS, MAC, MachineGuid) ne colle pas avec ce que le firmware/registre a enregistre au boot ou a l'install = un spoofer HWID (contournement de ban) est peut-etre actif ou est passe par la"; ProvesNot="une MAC changee a la main, une 'adresse aleatoire' Wi-Fi ou une reinstall partielle produisent aussi un ecart ; un spoofer qui patche les DEUX cotes de facon coherente passe - c'est un ecart a faire expliquer, pas un ban" }
+    CILOG     = @{ Shows="Windows (Code Integrity) a REFUSE de charger un driver kernel (.sys) non conforme : c'est la trace d'une tentative de BYOVD / driver mappe, avec sa date, ecrite par le systeme lui-meme"; ProvesNot="des drivers legitimes vieillissants (utilitaires carte mere, monitoring) se font aussi refuser sous HVCI ; un driver abusable est dual-use (Afterburner/HWiNFO) - la date + le chemin (Temp ?) font la difference"; ShowsFlag="un driver kernel au nom de cheat DISTINCTIF a tente de se charger sur cette machine (refus journalise par Windows, survit a la suppression du .sys)"; ProvesNotFlag="la tentative de chargement prouve que le loader a tourne ici, pas le moment d'usage en match ; a confirmer par la VOD" }
 }
 
 function Get-MeaningLines {
@@ -637,7 +639,7 @@ function New-ProbeResult {
 }
 
 function Write-ProbeLine {
-    param($r)
+    param($r, [int]$Index = 0, [int]$Total = 0)
     $map = @{
         OK    = @('[ OK ]','Green')
         INFO  = @('[INFO]','Cyan')
@@ -650,7 +652,8 @@ function Write-ProbeLine {
     if ($null -eq $entry) { $entry = @('[ ?? ]','Gray') }
     $tag   = $entry[0]
     $color = $entry[1]
-    Write-Host ("  {0} {1,-30}" -f $tag, $r.Name) -ForegroundColor $color -NoNewline
+    if ($Total -gt 0) { Write-Host ("  {0,2}/{1} " -f $Index, $Total) -ForegroundColor DarkGray -NoNewline } else { Write-Host "  " -NoNewline }
+    Write-Host ("{0} {1,-30}" -f $tag, $r.Name) -ForegroundColor $color -NoNewline
     Write-Host (" {0}" -f $r.Summary) -ForegroundColor Gray
     foreach($ml in (Get-MeaningLines $r)){ Write-Host ("         {0}" -f $ml) -ForegroundColor DarkGray }
 }
@@ -1795,6 +1798,26 @@ $script:DmaPciVendors = @('VEN_10EE')
 # passerait ce filtre -- mais la sonde le documente deja (spoof invisible => check visuel
 # obligatoire), la securite reelle ne repose pas sur ce WARN mais sur l'inspection humaine.
 $script:BenignPciVendors = @('VEN_8086','VEN_10DE','VEN_1002','VEN_1022','VEN_10EC','VEN_14E4','VEN_168C','VEN_14C3','VEN_1969')
+# Config space PAR DEFAUT du firmware pcileech-fpga (pcileech_cfgspace.coe : VID 10EE / DID 0666) : aucun
+# produit Xilinx commercial ne porte DEV_0666. Ce n'est pas un NOM renommable, c'est l'identite PCIe que
+# la carte annonce -> FLAG sev2 (comme un nom 'pcileech' cote PnP). Un firmware custom change ces IDs et passe.
+$script:DmaPciStockIds = @('VEN_10EE&DEV_0666')
+
+function Get-PciProblemLevel {
+    # Pur -> testable. Classe UN device PCIe : 'FLAG' = ID stock pcileech ; 'WARN' = Xilinx (dev-board
+    # possible) OU device PRESENT en erreur a VID inconnu OU device PRESENT a VID grand public dont le
+    # DRIVER EXISTE mais ne demarre pas (code 10/12/31/43 : une carte DMA qui clone l'ID d'une Realtek
+    # 8168 obtient le vrai driver Realtek... qui echoue, car le FPGA n'est pas une NIC) ; 'INFO' = VID
+    # grand public SANS driver (code 28 = reinstall pas finie, routine) ; '' = rien. Les devices
+    # FANTOMES (Present=$false, code CM_PROB_PHANTOM) ne sont jamais classes : materiel debranche = normal.
+    param([string]$InstanceId, [int]$ErrorCode, [bool]$Present)
+    if (Test-AnyPattern $InstanceId $script:DmaPciStockIds) { return 'FLAG' }
+    if (Test-AnyPattern $InstanceId $script:DmaPciVendors)  { return 'WARN' }
+    if (-not $Present -or $ErrorCode -eq 0) { return '' }
+    if (-not (Test-AnyPattern $InstanceId $script:BenignPciVendors)) { return 'WARN' }
+    if ($ErrorCode -in @(10,12,31,43)) { return 'WARN' }
+    return 'INFO'
+}
 
 function Probe-DmaPci {
     $details = New-Object System.Collections.Generic.List[string]
@@ -1803,32 +1826,36 @@ function Probe-DmaPci {
     try { $dev = @(Get-PnpDevice -ErrorAction Stop | Where-Object { $_.InstanceId -like 'PCI\*' }) } catch {
         return (New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'NA' -Severity 0 -Summary "Enumeration PCIe indisponible" -Details @($_.Exception.Message))
     }
-    $xil = New-Object System.Collections.Generic.List[string]
-    $nodrv = New-Object System.Collections.Generic.List[string]        # VID inconnu sans driver -> WARN
-    $nodrvBenign = New-Object System.Collections.Generic.List[string]  # VID grand public sans driver -> INFO (probable reinstall)
+    $flagL = New-Object System.Collections.Generic.List[string]   # ID stock pcileech
+    $warnL = New-Object System.Collections.Generic.List[string]   # Xilinx / VID inconnu en erreur / driver legit qui ne demarre pas
+    $infoL = New-Object System.Collections.Generic.List[string]   # VID grand public sans driver (probable reinstall)
     foreach($d in $dev){
         $iid = [string]$d.InstanceId
         $fn  = [string]$d.FriendlyName; if ([string]::IsNullOrWhiteSpace($fn)) { $fn = '(sans nom)' }
-        if (Test-AnyPattern $iid $script:DmaPciVendors) { $xil.Add("$fn  [$iid]  status=$($d.Status)") }
-        # device PCIe en erreur (typiquement sans driver = ConfigManagerErrorCode 28) : tell classique
-        # d'une carte DMA... mais aussi de plein de hardware benin. VID grand public => INFO (reinstall),
-        # VID inconnu => WARN. Xilinx (teste avant) reste WARN quoi qu'il arrive.
-        elseif ([string]$d.Status -eq 'Error') {
-            if (Test-AnyPattern $iid $script:BenignPciVendors) { $nodrvBenign.Add("$fn  [$iid]  status=Error (VID grand public : driver non installe ?)") }
-            else { $nodrv.Add("$fn  [$iid]  status=Error (sans driver ?)") }
+        $code = 0; $present = $true
+        # CIM : propriete absente/nulle => on reste conservateur (code 0 = pas d'erreur, present).
+        try { $cp = $d.PSObject.Properties['ConfigManagerErrorCode']; if ($cp -and $null -ne $cp.Value) { $code = [int]$cp.Value } } catch { }
+        try { $pp = $d.PSObject.Properties['Present'];                if ($pp -and $null -ne $pp.Value) { $present = [bool]$pp.Value } } catch { }
+        $line = "$fn  [$iid]  status=$($d.Status) code=$code"
+        switch (Get-PciProblemLevel -InstanceId $iid -ErrorCode $code -Present $present) {
+            'FLAG' { $flagL.Add("ID STOCK pcileech (10EE:0666) : $line") }
+            'WARN' { if (Test-AnyPattern $iid $script:DmaPciVendors) { $warnL.Add("FPGA/DMA connu (Xilinx) : $line") }
+                     elseif (Test-AnyPattern $iid $script:BenignPciVendors) { $warnL.Add("driver legitime present mais le device ne demarre pas (code $code) - un DMA qui clone cet ID echoue exactement comme ca : $line") }
+                     else { $warnL.Add("PCIe en erreur, VID inconnu (sans driver ?) : $line") } }
+            'INFO' { $infoL.Add("sans driver, VID grand public (probable reinstall - a confirmer visuellement, une 2e carte reste possible) : $line") }
         }
     }
-    $details.Add("Devices PCIe enumeres : $($dev.Count). Verif read-only = VID de carte DMA connue (Xilinx pcileech) + device PCIe sans driver. Ne voit que ce que le firmware presente : un DMA bien spoofe passe (check visuel obligatoire).")
-    foreach($h in $nodrvBenign){ $details.Add("  sans driver, VID grand public (probable reinstall - a confirmer visuellement, un 2e carte reste possible) : $h") }
-    if ($xil.Count -gt 0 -or $nodrv.Count -gt 0) {
-        foreach($h in $xil){ $details.Add("  FPGA/DMA connu (Xilinx) : $h") }
-        foreach($h in $nodrv){ $details.Add("  PCIe sans driver (VID inconnu) : $h") }
-        $sum = @()
-        if ($xil.Count -gt 0){ $sum += "$($xil.Count) carte(s) FPGA Xilinx (pcileech ?)" }
-        if ($nodrv.Count -gt 0){ $sum += "$($nodrv.Count) device(s) PCIe sans driver (VID inconnu)" }
-        return (New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'WARN' -Severity 1 -Summary (($sum -join ' ; ') + " - a verifier (dual-use)") -Details $details)
+    $details.Add("Devices PCIe enumeres : $($dev.Count). Verif read-only = ID stock pcileech (10EE:0666), VID Xilinx, device PCIe en erreur (sans driver / driver qui ne demarre pas). Ne voit que ce que le firmware presente : un DMA bien spoofe passe (check visuel obligatoire).")
+    foreach($h in $flagL){ $details.Add("  $h") }
+    foreach($h in $warnL){ $details.Add("  $h") }
+    foreach($h in $infoL){ $details.Add("  $h") }
+    if ($flagL.Count -gt 0) {
+        return (New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'FLAG' -Severity 2 -Summary "$($flagL.Count) carte(s) PCIe a l'ID STOCK pcileech (10EE:0666) - carte DMA quasi certaine" -Details $details)
     }
-    $sumInfo = if ($nodrvBenign.Count -gt 0) { "$($dev.Count) devices PCIe ; $($nodrvBenign.Count) sans driver a VID grand public (probable reinstall), aucune carte DMA connue" } else { "$($dev.Count) devices PCIe, aucune carte DMA connue ni PCIe sans driver" }
+    if ($warnL.Count -gt 0) {
+        return (New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'WARN' -Severity 1 -Summary "$($warnL.Count) device(s) PCIe a verifier (Xilinx / en erreur) - dual-use" -Details $details)
+    }
+    $sumInfo = if ($infoL.Count -gt 0) { "$($dev.Count) devices PCIe ; $($infoL.Count) sans driver a VID grand public (probable reinstall), aucune carte DMA connue" } else { "$($dev.Count) devices PCIe, aucune carte DMA connue ni PCIe en erreur" }
     New-ProbeResult -Id 'DMAPCI' -Name 'Cartes PCIe / DMA' -Status 'INFO' -Severity 0 -Summary $sumInfo -Details $details
 }
 
@@ -1859,6 +1886,128 @@ function Probe-DmaPosture {
     $details.Add("Note : l'etat exact de Kernel DMA Protection n'est pas expose proprement en user-mode ; on rapporte la posture VBS + disponibilite DMA. Toujours INFO (jamais une accusation).")
     $sum = Get-DmaPostureSummary -VbsStatus $vbs -DmaProtectionAvailable $dmaAvail
     New-ProbeResult -Id 'DMAPOSTURE' -Name 'Posture de protection DMA (VBS/IOMMU)' -Status 'INFO' -Severity 0 -Summary $sum -Details $details
+}
+
+# Horodatage de derniere ecriture d'une cle HKLM (RegQueryInfoKey). .NET ne l'expose pas. Lecture
+# seule, sans admin. Sert a dater la reecriture de MachineGuid (cible n°1 des spoofers HWID).
+$script:RegKeyTimeCSharp = @'
+using System; using System.Runtime.InteropServices;
+public static class DexRegKeyTime {
+  [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern int RegOpenKeyEx(UIntPtr hKey, string sub, int opts, int sam, out UIntPtr phk);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern int RegQueryInfoKey(UIntPtr hKey, IntPtr cls, IntPtr clsLen, IntPtr res, out uint subKeys, out uint maxSubLen, out uint maxClsLen, out uint values, out uint maxValNameLen, out uint maxValLen, out uint secDesc, out long lastWrite);
+  [DllImport("advapi32.dll")] static extern int RegCloseKey(UIntPtr hKey);
+  public static DateTime LastWriteHKLM(string sub) {
+    UIntPtr HKLM = new UIntPtr(0x80000002u); UIntPtr h;
+    int rc = RegOpenKeyEx(HKLM, sub, 0, 0x20019 | 0x0100, out h);   // KEY_READ | KEY_WOW64_64KEY
+    if (rc != 0) throw new System.ComponentModel.Win32Exception(rc);
+    try { uint a,b,c,d,e,f,g; long ft;
+      rc = RegQueryInfoKey(h, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out a, out b, out c, out d, out e, out f, out g, out ft);
+      if (rc != 0) throw new System.ComponentModel.Win32Exception(rc);
+      return DateTime.FromFileTime(ft);
+    } finally { RegCloseKey(h); }
+  }
+}
+'@
+
+function Get-HwidAssessment {
+    # PUR/testable. Un spoofer HWID (contournement de ban) reecrit ce que Windows PRESENTE : serials
+    # SMBIOS (via WMI), MAC, MachineGuid. Il oublie souvent la COPIE que le systeme garde ailleurs :
+    #  - HKLM\HARDWARE\DESCRIPTION\System\BIOS est rempli par le noyau AU BOOT depuis les tables SMBIOS ;
+    #    si WMI dit autre chose => quelqu'un a patche l'un des deux depuis. On ne compare que les
+    #    paires ou les DEUX cotes sont non vides (mesure 14/09 : sur un MSI propre, le registre a des
+    #    serials VIDES alors que WMI les a -> comparer du vide accuserait un innocent).
+    #  - PermanentAddress (MAC gravee dans la NIC) vs MacAddress (courante) : ecart = MAC forcee.
+    #    Wi-Fi => INFO seulement (Windows propose 'adresses materielles aleatoires', legitime) ;
+    #    Ethernet => WARN. Une valeur 'NetworkAddress' dans la cle du driver = forcage explicite => WARN.
+    #  - MachineGuid : ecrit a l'install. Cle reecrite >1 j APRES l'InstallDate => WARN (mesure 14/09 :
+    #    sur ce PC la cle est ecrite 1 min AVANT l'InstallDate, donc un PC propre passe).
+    # $SmbiosPairs = @{ Name; Wmi; Reg } ; $Nics = @{ Name; Mac; Permanent; Wifi } ; $RegOverrides = 'desc=MAC'.
+    param($SmbiosPairs, $Nics, [string[]]$RegOverrides, $GuidKeyTime, $InstallDate)
+    $warn = New-Object System.Collections.Generic.List[string]
+    $info = New-Object System.Collections.Generic.List[string]
+    $norm = { param($s) if ($null -eq $s) { '' } else { ([string]$s -replace '[\x00\s\-:]', '').ToUpperInvariant() } }
+    # PAS de @() autour des parametres : @(List[object]) leve 'Les types des arguments ne correspondent pas'
+    # sous StrictMode (mesure 14/09) ; foreach sur $null itere zero fois, c'est suffisant.
+    foreach ($p in $SmbiosPairs) {
+        if ($null -eq $p) { continue }
+        $w = & $norm $p.Wmi; $r = & $norm $p.Reg
+        if ($w.Length -eq 0 -or $r.Length -eq 0) { continue }
+        if ($w -ne $r) { $warn.Add(("SMBIOS {0} : WMI='{1}' vs registre (lu au boot)='{2}' - identite patchee apres le boot ?" -f $p.Name, $p.Wmi, $p.Reg)) }
+    }
+    foreach ($n in $Nics) {
+        if ($null -eq $n) { continue }
+        $m = & $norm $n.Mac; $pm = & $norm $n.Permanent
+        if ($m.Length -eq 0 -or $pm.Length -eq 0 -or $m -eq $pm) { continue }
+        $line = ("MAC {0} : courante {1} != gravee {2}" -f $n.Name, $n.Mac, $n.Permanent)
+        if ($n.Wifi) { $info.Add($line + " (Wi-Fi : 'adresse aleatoire' Windows possible - informatif)") } else { $warn.Add($line + " (Ethernet : MAC forcee)") }
+    }
+    foreach ($o in $RegOverrides) { if (-not [string]::IsNullOrWhiteSpace($o)) { $warn.Add("MAC forcee dans le registre (NetworkAddress) : $o") } }
+    if ($null -ne $GuidKeyTime -and $null -ne $InstallDate) {
+        $gt = [datetime]$GuidKeyTime; $it = [datetime]$InstallDate
+        if ($gt -gt $it.AddDays(1)) { $warn.Add(("MachineGuid : cle reecrite le {0}, soit {1} j APRES l'installation de Windows ({2}) - cible classique d'un spoofer" -f $gt, [int]($gt - $it).TotalDays, $it)) }
+    }
+    if ($warn.Count -gt 0) { return @{ Status='WARN'; Severity=1; Summary="$($warn.Count) ecart(s) d'identite materielle (spoof HWID possible) - a faire expliquer"; Lines=@($warn + $info) } }
+    if ($info.Count -gt 0) { return @{ Status='INFO'; Severity=0; Summary="Identite materielle coherente ; $($info.Count) ecart(s) Wi-Fi explicable(s) (adresse aleatoire)"; Lines=@($info) } }
+    return @{ Status='OK'; Severity=0; Summary='Identite materielle coherente (SMBIOS, MAC, MachineGuid)'; Lines=@() }
+}
+
+function Probe-Hwid {
+    $details = New-Object System.Collections.Generic.List[string]
+    $pairs = New-Object System.Collections.Generic.List[object]
+    $nics  = New-Object System.Collections.Generic.List[object]
+    $ovr   = New-Object System.Collections.Generic.List[string]
+    $readSomething = $false
+    try {
+        $bios = Get-CimInstance Win32_BIOS -ErrorAction Stop
+        $bb   = Get-CimInstance Win32_BaseBoard -ErrorAction SilentlyContinue
+        $cs   = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+        $reg  = Get-ItemProperty 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -ErrorAction Stop
+        $rv = { param($n) $p = $reg.PSObject.Properties[$n]; if ($p) { [string]$p.Value } else { '' } }
+        $pairs.Add(@{ Name='serial systeme';       Wmi=[string]$bios.SerialNumber;      Reg=(& $rv 'SystemSerialNumber') })
+        $pairs.Add(@{ Name='version BIOS';         Wmi=[string]$bios.SMBIOSBIOSVersion; Reg=(& $rv 'BIOSVersion') })
+        if ($bb) { $pairs.Add(@{ Name='serial carte mere'; Wmi=[string]$bb.SerialNumber; Reg=(& $rv 'BaseBoardSerialNumber') })
+                   $pairs.Add(@{ Name='modele carte mere'; Wmi=[string]$bb.Product;      Reg=(& $rv 'BaseBoardProduct') })
+                   $pairs.Add(@{ Name='fabricant carte mere'; Wmi=[string]$bb.Manufacturer; Reg=(& $rv 'BaseBoardManufacturer') }) }
+        if ($cs) { $pairs.Add(@{ Name='fabricant systeme'; Wmi=[string]$cs.Manufacturer; Reg=(& $rv 'SystemManufacturer') })
+                   $pairs.Add(@{ Name='modele systeme';    Wmi=[string]$cs.Model;        Reg=(& $rv 'SystemProductName') }) }
+        $readSomething = $true
+        $details.Add("SMBIOS : $($pairs.Count) paires WMI/registre comparees (serials, modele, fabricant, version BIOS). Serial systeme WMI='$($bios.SerialNumber)'.")
+    } catch { $details.Add("SMBIOS non comparable : $($_.Exception.Message.Split([char]10)[0])") }
+    try {
+        foreach ($a in @(Get-NetAdapter -Physical -ErrorAction Stop)) {
+            $pm = ''; try { $pm = [string]$a.PermanentAddress } catch { }
+            $med = ''; try { $med = [string]$a.PhysicalMediaType } catch { }
+            $nics.Add(@{ Name=[string]$a.Name; Mac=[string]$a.MacAddress; Permanent=$pm; Wifi=($med -match '802\.11') })
+        }
+        $readSomething = $true
+        $details.Add("Cartes reseau physiques : $($nics.Count) (MAC courante vs MAC gravee).")
+    } catch { $details.Add("Cartes reseau non lues : $($_.Exception.Message.Split([char]10)[0])") }
+    try {
+        $cls = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'
+        foreach ($k in @(Get-ChildItem $cls -ErrorAction Stop)) {
+            $p = Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue
+            if ($null -eq $p) { continue }
+            $na = $p.PSObject.Properties['NetworkAddress']
+            if ($na -and -not [string]::IsNullOrWhiteSpace([string]$na.Value)) {
+                $dd = $p.PSObject.Properties['DriverDesc']; $desc = if ($dd) { [string]$dd.Value } else { $k.PSChildName }
+                $ovr.Add("$desc = $($na.Value)")
+            }
+        }
+    } catch { }
+    $guidTime = $null; $install = $null
+    try {
+        if (-not ('DexRegKeyTime' -as [type])) { Add-Type -TypeDefinition $script:RegKeyTimeCSharp -ErrorAction Stop }
+        $guidTime = [DexRegKeyTime]::LastWriteHKLM('SOFTWARE\Microsoft\Cryptography')
+        $install  = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).InstallDate
+        $details.Add("MachineGuid : cle ecrite le $guidTime ; Windows installe le $install.")
+    } catch { $details.Add("MachineGuid : horodatage non lu ($($_.Exception.Message.Split([char]10)[0]))") }
+    if (-not $readSomething) {
+        return (New-ProbeResult -Id 'HWID' -Name 'Identite materielle (HWID / spoof)' -Status 'NA' -Severity 0 -Summary "SMBIOS et cartes reseau illisibles" -Details $details)
+    }
+    $details.Add("Limite : un spoofer qui patche de facon coherente WMI ET le registre (ou flashe le BIOS) passe ; un ecart est un point a faire expliquer, jamais un ban.")
+    $a = Get-HwidAssessment -SmbiosPairs $pairs -Nics $nics -RegOverrides $ovr -GuidKeyTime $guidTime -InstallDate $install
+    foreach ($l in $a.Lines) { $details.Add("  $l") }
+    New-ProbeResult -Id 'HWID' -Name 'Identite materielle (HWID / spoof)' -Status $a.Status -Severity $a.Severity -Summary $a.Summary -Details $details
 }
 
 function Get-SystemSecurityAssessment {
@@ -2259,6 +2408,16 @@ function ConvertFrom-RecentDocValue {
     return $sb.ToString()
 }
 
+function ConvertFrom-MuiCacheName {
+    # Pur -> testable. Nom de valeur MuiCache = '<chemin exe>.FriendlyAppName' / '.ApplicationCompany' ;
+    # rend le chemin de l'exe, '' pour les valeurs de service (LangID...) ou sans suffixe connu.
+    param([string]$ValueName)
+    if ([string]::IsNullOrWhiteSpace($ValueName)) { return '' }
+    $m = [regex]::Match($ValueName, '(?i)^(.+?)\.(FriendlyAppName|ApplicationCompany)$')
+    if ($m.Success) { return $m.Groups[1].Value }
+    return ''
+}
+
 function Probe-RecentActivity {
     $details = New-Object System.Collections.Generic.List[string]
     $names = New-Object System.Collections.Generic.List[string]
@@ -2289,7 +2448,20 @@ function Probe-RecentActivity {
             }
         }
     } catch { }
-    $details.Add("$($names.Count) entree(s) RecentDocs/RunMRU (fichiers ouverts recemment + commandes Executer) analysee(s).")
+    # MuiCache = chemin de chaque exe LANCE (Explorateur/ShellExecute) avec son nom d'application, ecrit au
+    # lancement, JAMAIS purge par Windows, oublie par la plupart des 'cleaners' -> source anti-wipe de plus.
+    $muiRoot = 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache'
+    $muiCount = 0
+    try {
+        $item = Get-Item -LiteralPath $muiRoot -ErrorAction SilentlyContinue
+        if ($null -ne $item) {
+            foreach ($vn in $item.GetValueNames()) {
+                $p = ConvertFrom-MuiCacheName $vn
+                if ($p) { $names.Add($p); $muiCount++ }
+            }
+        }
+    } catch { }
+    $details.Add("$($names.Count) entree(s) RecentDocs/RunMRU/MuiCache analysee(s) (fichiers ouverts recemment + commandes Executer + $muiCount exe lances).")
     $a = Get-WerCrashHits -Names $names -FlagPatterns (Get-CheatFlagPatterns) -WarnPatterns $script:CheatWarnWords
     if ($a.Flag.Count -gt 0) {
         foreach ($x in ($a.Flag | Select-Object -Unique)) { $details.Add("Nom de cheat DISTINCTIF ouvert/tape recemment : $x") }
@@ -2519,23 +2691,38 @@ function Get-DriverAssessment {
     # Logique PURE testable. Driver kernel non signe charge = fort signal BYOVD. Driver connu
     # abusable = a verifier (souvent dual-use : Afterburner/HWiNFO). On reste en WARN (le
     # moderateur tranche) pour ne pas crier SUSPECT sur un outil de monitoring legitime.
-    param([int]$UnsignedCount, [int]$VulnerableCount)
-    if ($UnsignedCount -gt 0 -or $VulnerableCount -gt 0) {
-        return @{ Status='WARN'; Severity=1; Summary="$UnsignedCount driver(s) kernel non signe(s) + $VulnerableCount driver(s) connu(s) abusable(s) (BYOVD) - a verifier" }
+    param([int]$UnsignedCount, [int]$VulnerableCount, [int]$UserZoneCount = 0)
+    if ($UnsignedCount -gt 0 -or $VulnerableCount -gt 0 -or $UserZoneCount -gt 0) {
+        return @{ Status='WARN'; Severity=1; Summary="$UnsignedCount driver(s) kernel non signe(s) + $VulnerableCount driver(s) connu(s) abusable(s) (BYOVD) + $UserZoneCount enregistre(s) depuis un dossier utilisateur - a verifier" }
     }
-    return @{ Status='OK'; Severity=0; Summary='Aucun driver kernel non signe ou abusable connu' }
+    return @{ Status='OK'; Severity=0; Summary='Aucun driver kernel non signe, abusable connu, ou enregistre depuis un dossier utilisateur' }
+}
+
+function Test-UserZoneDriverPath {
+    # PUR/testable. Vrai si un chemin de driver kernel pointe sous \Users\ (Temp, Downloads, Desktop...).
+    # C'est la signature d'un MAPPER : kdmapper enregistre un service SCM vers
+    # \??\C:\Users\x\AppData\Local\Temp\iqvw64e.sys, charge, puis supprime le service - sauf si ca plante.
+    # \ProgramData N'EST PAS une zone user : les anti-triche y vivent (Battle.net randgrid.sys, mesure 14/09).
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    return [regex]::IsMatch($Path, '(?i)(^|[\\/])users[\\/]')
 }
 
 function Probe-KernelDrivers {
     # Vecteur DMA / cheat kernel : un driver .sys non signe charge, ou un driver connu
     # abusable (BYOVD), permet de lire/ecrire la memoire kernel et de contourner l'anti-cheat.
+    # Les services de driver NON charges sont aussi lus (residu d'un mapper : service qui pointe sous \Users\).
     $details = New-Object System.Collections.Generic.List[string]
-    $drivers = @()
-    try { $drivers = @(Get-CimInstance Win32_SystemDriver -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Running' }) } catch {
+    $all = @(); $drivers = @()
+    try { $all = @(Get-CimInstance Win32_SystemDriver -ErrorAction Stop); $drivers = @($all | Where-Object { $_.State -eq 'Running' }) } catch {
         return (New-ProbeResult -Id 'KDRV' -Name 'Drivers kernel (BYOVD)' -Status 'NA' -Severity 0 -Summary "Enumeration des drivers indisponible" -Details @($_.Exception.Message))
     }
     $unsigned = New-Object System.Collections.Generic.List[string]
     $vuln     = New-Object System.Collections.Generic.List[string]
+    $userZone = New-Object System.Collections.Generic.List[string]
+    foreach ($d in $all) {
+        if (Test-UserZoneDriverPath ([string]$d.PathName)) { $userZone.Add("$($d.Name) [$($d.State)]  ($($d.PathName))") }
+    }
     foreach ($d in $drivers) {
         $nm = [string]$d.Name
         $path = [string]$d.PathName
@@ -2556,7 +2743,7 @@ function Probe-KernelDrivers {
             } catch { }
         }
     }
-    $details.Add("Drivers kernel en cours d'execution : $($drivers.Count). Verif = signature Authenticode (non signe = fort signal BYOVD) + liste curee de drivers connus abusables.")
+    $details.Add("Drivers kernel enregistres : $($all.Count) dont $($drivers.Count) en cours d'execution. Verif = signature Authenticode (non signe = fort signal BYOVD) + liste curee de drivers connus abusables + service qui pointe sous \Users\ (residu de mapper).")
     if (-not (Test-Admin)) { $details.Add("NOTE : sans admin, la lecture de certains chemins/signatures peut etre partielle.") }
     if ($vuln.Count -gt 0) {
         $details.Add("DRIVERS CONNUS ABUSABLES (BYOVD - souvent dual-use Afterburner/HWiNFO/monitoring, a confirmer) :")
@@ -2566,7 +2753,11 @@ function Probe-KernelDrivers {
         $details.Add("DRIVERS KERNEL NON SIGNES / SIGNATURE INVALIDE (rare et notable sur Windows x64) :")
         foreach ($u in $unsigned) { $details.Add("  $u") }
     }
-    $a = Get-DriverAssessment -UnsignedCount $unsigned.Count -VulnerableCount $vuln.Count
+    if ($userZone.Count -gt 0) {
+        $details.Add("SERVICES DE DRIVER ENREGISTRES DEPUIS UN DOSSIER UTILISATEUR (Temp/Downloads = pattern kdmapper/BYOVD, rarement legitime) :")
+        foreach ($u in $userZone) { $details.Add("  $u") }
+    }
+    $a = Get-DriverAssessment -UnsignedCount $unsigned.Count -VulnerableCount $vuln.Count -UserZoneCount $userZone.Count
     New-ProbeResult -Id 'KDRV' -Name 'Drivers kernel (BYOVD)' -Status $a.Status -Severity $a.Severity -Summary $a.Summary -Details $details
 }
 
@@ -2619,6 +2810,66 @@ function Probe-DriverInstalls {
         return (New-ProbeResult -Id 'DRVINST' -Name 'Installs de driver/service (7045)' -Status 'WARN' -Severity 1 -Summary "$($warnHits.Count) install(s) de driver abusable (BYOVD) date(s) - a verifier (dual-use : Afterburner/HWiNFO)" -Details $details)
     }
     New-ProbeResult -Id 'DRVINST' -Name 'Installs de driver/service (7045)' -Status 'OK' -Severity 0 -Summary "$($installs.Count) install(s) analyse(s), aucun driver abusable/cheat" -Details $details
+}
+
+function Get-CiLogHits {
+    # PUR/testable. Journal Microsoft-Windows-CodeIntegrity/Operational : Windows y ecrit LUI-MEME chaque
+    # image qu'il a refuse de charger (3033/3077 = niveau de signature insuffisant / bloquee par la
+    # politique, 3004/3001 = integrite non verifiable, 3076 = audit). Un driver mappe (kdmapper + driver
+    # vulnerable), un driver non signe, un driver de spoofer : ils passent par la et laissent une ligne
+    # DATEE qui survit a la suppression du .sys. Les messages sont LOCALISES (FR/EN...) : on n'analyse que
+    # les CHEMINS (\Device\HarddiskVolumeN\... ou C:\...), independants de la langue.
+    # Bruit mesure 14/09 : 3033 tire aussi sur des DLL legitimes (Bonjour mdnsNSP.dll dans svchost) ->
+    # on ne garde que les .sys (drivers = le vecteur kernel), sauf nom de cheat distinctif (toute image).
+    # Rend une List de @{ Id; Time; Path; Level } (FLAG = nom de cheat ; WARN = .sys refuse).
+    param($Events, [string[]]$FlagPatterns)
+    $hits = New-Object System.Collections.Generic.List[object]
+    if ($null -eq $Events) { return ,$hits }
+    $rx = [regex]'(?i)(\\Device\\HarddiskVolume\d+\\[^\s"''<>|]+|\\\?\?\\[^\s"''<>|]+|[A-Z]:\\[^\s"''<>|]+)'
+    foreach ($e in $Events) {
+        if ($null -eq $e) { continue }
+        $msg = [string]$e.Message
+        if ([string]::IsNullOrWhiteSpace($msg)) { continue }
+        $seen = @{}
+        foreach ($m in $rx.Matches($msg)) {
+            $p = $m.Value.TrimEnd('.', ',', ';', ')')
+            if ($seen.ContainsKey($p)) { continue }; $seen[$p] = $true
+            $file = ''; try { $file = [System.IO.Path]::GetFileName($p) } catch { $file = $p }
+            if (Test-AnyWord $p $FlagPatterns) { $hits.Add([pscustomobject]@{ Id=$e.Id; Time=$e.Time; Path=$p; Level='FLAG' }) }
+            elseif ($file -match '(?i)\.sys$')  { $hits.Add([pscustomobject]@{ Id=$e.Id; Time=$e.Time; Path=$p; Level='WARN' }) }
+        }
+    }
+    return ,$hits
+}
+
+function Probe-CodeIntegrity {
+    $details = New-Object System.Collections.Generic.List[string]
+    $events = @()
+    try {
+        $events = @(Get-WinEvent -FilterHashtable @{ LogName='Microsoft-Windows-CodeIntegrity/Operational'; Id=@(3001,3004,3033,3076,3077) } -MaxEvents 3000 -ErrorAction Stop)
+    } catch {
+        # "aucun evenement" est un vrai resultat (log lu, rien dedans) ; tout autre echec = non lu.
+        if ($_.Exception.Message -match '(?i)no events|aucun .*ev|NoMatchingEvents') { $events = @() }
+        else { return (New-ProbeResult -Id 'CILOG' -Name 'Journal Code Integrity (drivers refuses)' -Status 'NA' -Severity 0 -Summary "Journal CodeIntegrity non lisible" -Details @($_.Exception.Message.Split([char]10)[0])) }
+    }
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($e in $events) { $list.Add(@{ Id=$e.Id; Time=$e.TimeCreated; Message=[string]$e.Message }) }
+    $hits = Get-CiLogHits -Events $list -FlagPatterns (Get-CheatFlagPatterns)
+    $flagHits = @($hits | Where-Object { $_.Level -eq 'FLAG' })
+    $warnHits = @($hits | Where-Object { $_.Level -eq 'WARN' } | Sort-Object Path -Unique)
+    $details.Add("Evenements Code Integrity lus : $($events.Count) (refus de chargement 3001/3004/3033/3076/3077). Seuls les drivers .sys (et tout nom de cheat distinctif) sont retenus ; les DLL refusees (frequent, legitime) sont ignorees.")
+    foreach ($h in $flagHits) { $details.Add(("  FLAG nom de cheat distinctif refuse au chargement : {0}  (event {1}, {2})" -f $h.Path, $h.Id, $h.Time)) }
+    foreach ($h in $warnHits) {
+        $why = if (Test-UserZoneDriverPath $h.Path) { 'depuis un dossier UTILISATEUR = pattern mapper' } elseif (Test-AnyPattern $h.Path $script:VulnerableDrivers) { 'driver connu abusable (BYOVD, dual-use)' } else { 'driver refuse (vieux driver legitime possible)' }
+        $details.Add(("  driver .sys refuse : {0}  [{1}]  (event {2}, {3})" -f $h.Path, $why, $h.Id, $h.Time))
+    }
+    if ($flagHits.Count -gt 0) {
+        return (New-ProbeResult -Id 'CILOG' -Name 'Journal Code Integrity (drivers refuses)' -Status 'FLAG' -Severity 2 -Summary "$($flagHits.Count) image(s) au nom de cheat distinctif refusee(s) au chargement (journal Windows, date)" -Details $details)
+    }
+    if ($warnHits.Count -gt 0) {
+        return (New-ProbeResult -Id 'CILOG' -Name 'Journal Code Integrity (drivers refuses)' -Status 'WARN' -Severity 1 -Summary "$($warnHits.Count) driver(s) .sys refuse(s) par Code Integrity - a verifier (BYOVD / mapper ? ou vieux driver)" -Details $details)
+    }
+    New-ProbeResult -Id 'CILOG' -Name 'Journal Code Integrity (drivers refuses)' -Status 'OK' -Severity 0 -Summary "$($events.Count) evenement(s) lu(s), aucun driver .sys refuse ni nom de cheat" -Details $details
 }
 
 function Probe-Injection {
@@ -2758,6 +3009,12 @@ function Get-EvasionProfile {
 # et les inclure ferait basculer chaque check normal en "A VERIFIER" pour rien.
 $script:CoreEvidenceIds = @('PREFETCH','SHIMCACHE','DELFILES','USN','EXEC','PCA','ANTIFOR','WER','EVTLOG','SECBOOT')
 
+# Artefacts d'EXECUTION anti-wipe INDEPENDANTS : deux d'entre eux en FLAG (nom distinctif) = execution
+# corroboree -> ROUGE. CILOG ajoute le 14/09 : un refus de chargement de driver au nom de cheat est ecrit
+# par le noyau dans son propre journal, independamment du systeme de fichiers (prefetch/USN) et de la
+# ruche (shimcache/PCA) : c'est une source de corroboration de plus, pas un doublon.
+$script:AntiWipeIds = @('DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH','CILOG')
+
 function Get-Verdict {
     param($results)
     $crit = @($results | Where-Object { $_.Severity -ge 3 })
@@ -2771,7 +3028,7 @@ function Get-Verdict {
     #  - OU vue sur >=1 artefact + un nettoyage COORDONNE (wipe/logs effaces/Defender coupe + corrob.) =
     #    "il a tourne puis efface ses traces" -> ROUGE.
     # Un FLAG anti-wipe SEUL, ou un device (Cronus) seul, reste SUSPECT : un signal isole ne condamne pas.
-    $antiWipe = @($flag | Where-Object { @('DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH') -contains [string]$_.Id })
+    $antiWipe = @($flag | Where-Object { $script:AntiWipeIds -contains [string]$_.Id })
     if ($antiWipe.Count -ge 2) { return 'ROUGE' }
     if ($antiWipe.Count -ge 1 -and (Get-EvasionProfile $results).Escalate) { return 'ROUGE' }
     if ($flag.Count -gt 0) { return 'SUSPECT' }
@@ -2837,7 +3094,7 @@ function Get-VerdictReasoning {
         # Corroboration : plusieurs artefacts anti-wipe INDEPENDANTS qui pointent un exe de triche
         # au nom distinctif = execution confirmee, pas un simple soupcon (une trace isolee peut etre
         # un residu ; plusieurs qui concordent, non).
-        $corr = @($flags | Where-Object { @('DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH') -contains [string]$_.Id })
+        $corr = @($flags | Where-Object { $script:AntiWipeIds -contains [string]$_.Id })
         if ($corr.Count -ge 2) {
             $out.Add("$($corr.Count) artefacts anti-wipe INDEPENDANTS (prefetch / execution / shimcache / PCA...) pointent un executable de triche au nom distinctif : concordance = execution CONFIRMEE malgre l'effacement du binaire, pas un simple soupcon.")
         }
@@ -2944,28 +3201,42 @@ function Write-Reports {
     foreach($l in $script:Limites){ [void]$sb.AppendLine(" $l") }
     [System.IO.File]::WriteAllText($txt, $sb.ToString(), (New-Object System.Text.UTF8Encoding($true)))
 
-    # --- HTML ---
-    $rows = New-Object System.Text.StringBuilder
+    # --- HTML : verdict + action, puis les FLAG/WARN DEPLIES (avec Montre / Ne prouve pas), le reste
+    #     (OK/INFO/NA) REPLIE dans un <details> : le modo lit d'abord ce qui compte. ---
     $colorMap = @{ OK='#1f9d55'; INFO='#0ea5e9'; WARN='#d97706'; FLAG='#dc2626'; NA='#6b7280'; ERROR='#9333ea' }
-    foreach($r in $results){
+    $rowOf = {
+        param($r, [bool]$open)
         $c = $colorMap[$r.Status]; if (-not $c) { $c = '#6b7280' }
         $det = ($r.Details | ForEach-Object { ConvertTo-HtmlText $_ }) -join '<br>'
         $meaning = (Get-MeaningLines $r | ForEach-Object { ConvertTo-HtmlText $_ }) -join '<br>'
         if ($meaning) { $det = "<span style='color:#cbd5e1'>$meaning</span><br>$det" }
-        [void]$rows.AppendLine("<tr><td style='color:$c;font-weight:bold'>$($r.Status)</td><td>$(ConvertTo-HtmlText $r.Name)</td><td>$(ConvertTo-HtmlText $r.Summary)</td></tr><tr><td></td><td colspan='2' style='color:#9ca3af;font-size:12px'>$det</td></tr>")
+        $o = if ($open) { ' open' } else { '' }
+        "<details$o><summary><span class='st' style='color:$c'>$($r.Status)</span> <b>$(ConvertTo-HtmlText $r.Name)</b> &mdash; $(ConvertTo-HtmlText $r.Summary)</summary><div class='det'>$det</div></details>"
     }
+    $hot  = @($results | Where-Object { $_.Status -in @('FLAG','WARN','ERROR') })
+    $rest = @($results | Where-Object { $_.Status -notin @('FLAG','WARN','ERROR') })
+    $hotHtml  = ($hot  | ForEach-Object { & $rowOf $_ $true })  -join "`n"
+    $restHtml = ($rest | ForEach-Object { & $rowOf $_ $false }) -join "`n"
     $vColor = switch ($verdict) { 'CLEAN' {'#1f9d55'} 'A VERIFIER' {'#d97706'} 'SUSPECT' {'#dc2626'} 'ROUGE' {'#991b1b'} default {'#6b7280'} }
     $limHtml = ($script:Limites | ForEach-Object { ConvertTo-HtmlText $_ }) -join '<br>'
+    $hotTitle = if ($hot.Count -gt 0) { "$($hot.Count) point(s) a regarder (FLAG / WARN)" } else { "Aucun FLAG ni WARN" }
     $htmlDoc = @"
 <!DOCTYPE html><html lang='fr'><head><meta charset='utf-8'><title>DexCheck $env:COMPUTERNAME</title>
-<style>body{background:#0f1115;color:#e5e7eb;font-family:Segoe UI,Arial,sans-serif;margin:24px}
-h1{font-size:20px}.v{display:inline-block;padding:4px 12px;border-radius:6px;color:#fff;background:$vColor;font-weight:bold}
-table{border-collapse:collapse;width:100%;margin-top:16px}td{border-bottom:1px solid #1f2430;padding:6px 8px;vertical-align:top}
-.lim{margin-top:20px;color:#9ca3af;font-size:12px;border-top:1px solid #1f2430;padding-top:12px}</style></head><body>
+<style>body{background:#0f1115;color:#e5e7eb;font-family:Segoe UI,Arial,sans-serif;margin:24px;max-width:1100px}
+h1{font-size:20px}h2{font-size:15px;margin:22px 0 8px;color:#cbd5e1}.v{display:inline-block;padding:4px 12px;border-radius:6px;color:#fff;background:$vColor;font-weight:bold}
+.act{background:#171a21;border-left:4px solid $vColor;padding:8px 12px;margin:10px 0;font-size:14px}
+details{border-bottom:1px solid #1f2430;padding:6px 0}summary{cursor:pointer;font-size:14px}.st{font-weight:bold;display:inline-block;min-width:44px}
+.det{color:#9ca3af;font-size:12px;padding:6px 0 4px 52px;white-space:pre-wrap}
+.meta{color:#9ca3af;font-size:12px}.lim{margin-top:20px;color:#9ca3af;font-size:12px;border-top:1px solid #1f2430;padding-top:12px}</style></head><body>
 <h1>DEXCHECK - PC Check forensic <span style='color:#6b7280;font-size:13px'>v$script:Version &middot; by DrDexter</span></h1>
 <p>Machine <b>$env:COMPUTERNAME</b> / $env:USERNAME &middot; $($start.ToString('yyyy-MM-dd HH:mm:ss'))$(if(-not [string]::IsNullOrWhiteSpace($script:Nonce)){" &middot; nonce <b>$(ConvertTo-HtmlText $script:Nonce)</b>"}) &middot; Verdict : <span class='v'>$verdict</span></p>
-<p style='color:#cbd5e1;font-size:13px;max-width:900px'>$((Get-VerdictReasoning $results | ForEach-Object { ConvertTo-HtmlText $_ }) -join '<br>')</p>
-<table>$($rows.ToString())</table>
+<div class='act'><b>ACTION :</b> $(ConvertTo-HtmlText (Get-VerdictAction $verdict))</div>
+<p class='meta'>Bilan : $(ConvertTo-HtmlText (Get-StatusTally $results)) &middot; Mode $(if($deep){'approfondi (-Deep)'}else{'rapide'})$(if($degraded){' &middot; <b>DEGRADE (sans admin)</b>'}) &middot; Empreinte du script : <code>$(ConvertTo-HtmlText $script:SelfHash)</code></p>
+<p style='color:#cbd5e1;font-size:13px'>$((Get-VerdictReasoning $results | ForEach-Object { ConvertTo-HtmlText $_ }) -join '<br>')</p>
+<h2>$hotTitle</h2>
+$hotHtml
+<h2>Autres sondes ($($rest.Count) : OK / INFO / NA) &mdash; cliquer pour deplier</h2>
+$restHtml
 <div class='lim'>$limHtml</div></body></html>
 "@
     [System.IO.File]::WriteAllText($html, $htmlDoc, (New-Object System.Text.UTF8Encoding($true)))
@@ -3111,6 +3382,8 @@ function Invoke-DexCheck {
         @{ Name='Hardware / DMA / capture';      Fn=${function:Probe-Hardware} }
         @{ Name='Cartes PCIe / DMA';             Fn=${function:Probe-DmaPci} }
         @{ Name='Posture de protection DMA (VBS/IOMMU)'; Fn=${function:Probe-DmaPosture} }
+        @{ Name='Identite materielle (HWID / spoof)'; Fn=${function:Probe-Hwid} }
+        @{ Name='Journal Code Integrity (drivers refuses)'; Fn=${function:Probe-CodeIntegrity} }
         @{ Name='Mur de fraicheur (timeline)';    Fn=${function:Probe-Timeline} }
         @{ Name='Points de restauration (Shadow Copies)'; Fn=${function:Probe-ShadowCopies} }
         @{ Name='Securite systeme';              Fn=${function:Probe-SystemSecurity} }
@@ -3136,7 +3409,12 @@ function Invoke-DexCheck {
     $script:ReportDir = if (Test-DirWritable $preferredDir) { $preferredDir } else { $env:TEMP }
 
     $results = New-Object System.Collections.Generic.List[object]
+    $idx = 0
+    Write-Host ("   {0} sondes, lecture seule. Chaque ligne = une sonde terminee." -f $probes.Count) -ForegroundColor DarkGray
     foreach($p in $probes){
+        $idx++
+        # ligne de progression ecrasee par le resultat : le joueur/modo voit ce qui tourne, jamais un ecran fige
+        Write-Host ("  [{0,2}/{1}] {2} ..." -f $idx, $probes.Count, $p.Name) -ForegroundColor DarkGray -NoNewline
         $r = $null
         try {
             $r = & $p.Fn
@@ -3144,7 +3422,8 @@ function Invoke-DexCheck {
             $r = New-ProbeResult -Id 'ERR' -Name $p.Name -Status 'ERROR' -Severity 1 -Summary ("Exception: " + $_.Exception.Message)
         }
         if ($null -eq $r) { $r = New-ProbeResult -Id 'ERR' -Name $p.Name -Status 'ERROR' -Severity 1 -Summary 'Aucun resultat retourne' }
-        Write-ProbeLine $r
+        Write-Host ("`r" + (' ' * 78) + "`r") -NoNewline
+        Write-ProbeLine $r -Index $idx -Total $probes.Count
         $results.Add($r)
     }
 

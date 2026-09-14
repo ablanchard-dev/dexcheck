@@ -319,7 +319,7 @@ Test-Case "Get-Verdict : provider connu (sev 3) => ROUGE inchange ; aucun flag =
     ((Get-Verdict @((New-ProbeResult -Id 'PROC' -Name p -Status 'OK' -Severity 0))) -eq 'CLEAN')
 }
 Test-Case "ProbeMeaning : chaque sonde WARN/FLAG-able a une entree Shows+ProvesNot non vide" {
-    $ids = @('IDENT','WINAGE','USN','DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH','PROC','PERSIST','EVTLOG','ANTIFOR','BROWSER','DNS','HARDWARE','DMAPCI','SECBOOT','NET','CHEATS','INPUT','VM','DEFENDER','KDRV','INJECT')
+    $ids = @('IDENT','WINAGE','USN','DELFILES','EXEC','SHIMCACHE','PCA','PREFETCH','PROC','PERSIST','EVTLOG','ANTIFOR','BROWSER','DNS','HARDWARE','DMAPCI','SECBOOT','NET','CHEATS','INPUT','VM','DEFENDER','KDRV','INJECT','HWID','CILOG')
     $missing = @($ids | Where-Object { -not $script:ProbeMeaning.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($script:ProbeMeaning[$_].Shows) -or [string]::IsNullOrWhiteSpace($script:ProbeMeaning[$_].ProvesNot) })
     if ($missing) { Write-Host ("      -> manquants: {0}" -f ($missing -join ', ')) -ForegroundColor DarkYellow }
     ($missing.Count -eq 0)
@@ -1347,9 +1347,9 @@ Test-Case "Les 4 declencheurs sont bien ceux annonces (journaux effaces, testsig
     $src = [IO.File]::ReadAllText($ScriptPath)
     $journaux    = [regex]::IsMatch($src, '\$sev\s*=\s*3;\s*\$summary\s*=\s*"Journaux d.evenements EFFACES')
     $testsigning = [regex]::IsMatch($src, "function Get-SystemSecurityAssessment[\s\S]{0,900}?Status='FLAG';\s*Severity=3")
-    $cheatLive   = [regex]::IsMatch($src, "-Id 'NET'[^
+    $cheatLive   = [regex]::IsMatch($src, "-Id 'NET'[^
 ]*-Severity 3")
-    $cheatPose   = [regex]::IsMatch($src, "-Id 'CHEATS'[^
+    $cheatPose   = [regex]::IsMatch($src, "-Id 'CHEATS'[^
 ]*-Severity 3")
     $journaux -and $testsigning -and $cheatLive -and $cheatPose
 }
@@ -1357,6 +1357,145 @@ Test-Case "Chacun des 4 suffit SEUL a rendre ROUGE (la loi, pas seulement la tab
     $seul = { param($id) (Get-Verdict @((New-ProbeResult -Id $id -Name x -Status 'FLAG' -Severity 3))) }
     (& $seul 'EVTLOG') -eq 'ROUGE' -and (& $seul 'SECBOOT') -eq 'ROUGE' -and `
     (& $seul 'NET') -eq 'ROUGE' -and (& $seul 'CHEATS') -eq 'ROUGE'
+}
+
+# ---------------------------------------------------------------------------
+Section "F. FAMILLES AVANCEES (14/09) : HWID spoof, DMA par ID PCIe, BYOVD via Code Integrity / services, MuiCache"
+
+# --- DMA : identite PCIe (pas un nom renommable) ---
+Test-Case "DMA VRAI-POSITIF : ID STOCK pcileech (VEN_10EE&DEV_0666) => FLAG (config space par defaut du firmware pcileech-fpga)" {
+    (Get-PciProblemLevel -InstanceId 'PCI\VEN_10EE&DEV_0666&SUBSYS_00000000&REV_00\4&1&0&00' -ErrorCode 28 -Present $true) -eq 'FLAG'
+}
+Test-Case "DMA : Xilinx autre DID (dev-board possible) => WARN, jamais FLAG" {
+    (Get-PciProblemLevel -InstanceId 'PCI\VEN_10EE&DEV_7024\x' -ErrorCode 0 -Present $true) -eq 'WARN'
+}
+Test-Case "DMA VRAI-POSITIF : un device a VID grand public (Realtek) dont le driver EXISTE mais ne demarre pas (code 10) => WARN (un DMA qui clone l'ID d'une NIC echoue exactement comme ca)" {
+    (Get-PciProblemLevel -InstanceId 'PCI\VEN_10EC&DEV_8168\x' -ErrorCode 10 -Present $true) -eq 'WARN'
+}
+Test-Case "DMA GARDE-FOU : VID grand public SANS driver (code 28, reinstall pas finie) => INFO, pas WARN (PC neuf protege)" {
+    (Get-PciProblemLevel -InstanceId 'PCI\VEN_8086&DEV_2725\x' -ErrorCode 28 -Present $true) -eq 'INFO'
+}
+Test-Case "DMA GARDE-FOU : device FANTOME (debranche, Present=false) => jamais classe ; device OK (code 0) => rien" {
+    ((Get-PciProblemLevel -InstanceId 'PCI\VEN_10EC&DEV_8168\x' -ErrorCode 10 -Present $false) -eq '') -and
+    ((Get-PciProblemLevel -InstanceId 'PCI\VEN_10DE&DEV_2882\x' -ErrorCode 0 -Present $true) -eq '')
+}
+Test-Case "DMA : VID INCONNU en erreur => WARN (comme avant)" {
+    (Get-PciProblemLevel -InstanceId 'PCI\VEN_1234&DEV_5678\x' -ErrorCode 28 -Present $true) -eq 'WARN'
+}
+Test-Case "DmaPciStockIds : invariant = 10EE:0666 uniquement (un DID Xilinx de dev-board n'y est jamais)" {
+    (@($script:DmaPciStockIds) -contains 'VEN_10EE&DEV_0666') -and (@($script:DmaPciStockIds).Count -eq 1)
+}
+
+# --- HWID spoof : ecarts entre ce que Windows PRESENTE et ce qu'il a ENREGISTRE ---
+Test-Case "HWID PC PROPRE (cas reel mesure 14/09) : paires identiques + registre VIDE d'un cote + MAC = gravee + MachineGuid ecrit AVANT l'install => OK" {
+    $now = Get-Date
+    $a = Get-HwidAssessment -SmbiosPairs @(@{Name='serial';Wmi='07D9810_O31E802272';Reg='07D9810_O31E802272'},@{Name='serial systeme';Wmi='Default string';Reg=''}) `
+        -Nics @(@{Name='Ethernet';Mac='D8-43-AE-99-F4-C7';Permanent='D843AE99F4C7';Wifi=$false}) -RegOverrides @() `
+        -GuidKeyTime $now.AddDays(-500) -InstallDate $now.AddDays(-500).AddMinutes(1)
+    ($a.Status -eq 'OK') -and ($a.Lines.Count -eq 0)
+}
+Test-Case "HWID VRAI-POSITIF : serial SMBIOS WMI != registre (lu au boot) => WARN (spoof live probable)" {
+    $a = Get-HwidAssessment -SmbiosPairs @(@{Name='serial';Wmi='RANDOM9X';Reg='ABC123'}) -Nics @() -RegOverrides @() -GuidKeyTime $null -InstallDate $null
+    ($a.Status -eq 'WARN') -and ($a.Severity -eq 1) -and ($a.Lines[0] -match 'RANDOM9X' -and $a.Lines[0] -match 'ABC123')
+}
+Test-Case "HWID VRAI-POSITIF : MAC courante != MAC gravee sur ETHERNET => WARN ; sur WI-FI => INFO seulement (adresse aleatoire Windows = legitime)" {
+    $w = Get-HwidAssessment -SmbiosPairs @() -Nics @(@{Name='Ethernet';Mac='02-11-22-33-44-55';Permanent='D843AE99F4C7';Wifi=$false}) -RegOverrides @() -GuidKeyTime $null -InstallDate $null
+    $f = Get-HwidAssessment -SmbiosPairs @() -Nics @(@{Name='Wi-Fi';Mac='02-11-22-33-44-55';Permanent='189341ED963F';Wifi=$true}) -RegOverrides @() -GuidKeyTime $null -InstallDate $null
+    ($w.Status -eq 'WARN') -and ($f.Status -eq 'INFO')
+}
+Test-Case "HWID VRAI-POSITIF : valeur NetworkAddress forcee dans la cle du driver reseau => WARN" {
+    $a = Get-HwidAssessment -SmbiosPairs @() -Nics @() -RegOverrides @('Realtek Gaming 2.5GbE = 021122334455') -GuidKeyTime $null -InstallDate $null
+    ($a.Status -eq 'WARN') -and ($a.Lines[0] -match 'NetworkAddress')
+}
+Test-Case "HWID VRAI-POSITIF : cle MachineGuid reecrite 397 j APRES l'install => WARN (cible n°1 des spoofers) ; reecrite le jour de l'install => OK" {
+    $now = Get-Date
+    $bad = Get-HwidAssessment -SmbiosPairs @() -Nics @() -RegOverrides @() -GuidKeyTime $now.AddDays(-3) -InstallDate $now.AddDays(-400)
+    $ok  = Get-HwidAssessment -SmbiosPairs @() -Nics @() -RegOverrides @() -GuidKeyTime $now.AddDays(-400).AddHours(2) -InstallDate $now.AddDays(-400)
+    ($bad.Status -eq 'WARN') -and ($bad.Lines[0] -match 'MachineGuid') -and ($ok.Status -eq 'OK')
+}
+Test-Case "HWID : normalisation = tirets/deux-points/espaces/casse ignores (D8-43-AE = d843ae) ; null partout => OK sans crash" {
+    $a = Get-HwidAssessment -SmbiosPairs @(@{Name='x';Wmi=' ab-cd ';Reg='ABCD'}) -Nics @(@{Name='e';Mac='d8:43:ae';Permanent='D8-43-AE';Wifi=$false}) -RegOverrides @() -GuidKeyTime $null -InstallDate $null
+    $n = Get-HwidAssessment -SmbiosPairs $null -Nics $null -RegOverrides $null -GuidKeyTime $null -InstallDate $null
+    ($a.Status -eq 'OK') -and ($n.Status -eq 'OK')
+}
+Test-Case "HWID : la sonde ne produit JAMAIS un FLAG (un ecart d'identite se fait expliquer, il ne condamne pas)" {
+    $src = [IO.File]::ReadAllText($ScriptPath)
+    $body = [regex]::Match($src, "function Get-HwidAssessment[\s\S]*?\r?\n}\r?\n").Value
+    ($body.Length -gt 0) -and ($body -notmatch "Status='FLAG'")
+}
+Test-Case "Sonde Identite materielle (HWID) presente dans le rapport et jamais FLAG/WARN sur ce PC propre (OK/INFO/NA)" {
+    $p = $statuses.GetEnumerator() | Where-Object { $_.Key -like '*HWID*' } | Select-Object -First 1
+    if (-not $p) { Write-Host '      (sonde HWID absente)' -ForegroundColor DarkYellow; return $false }
+    ($p.Value -in @('OK','INFO','NA'))
+}
+
+# --- BYOVD / mapper : journal Code Integrity (ecrit par le noyau, survit a la suppression du .sys) ---
+$ciBonjour = 'Code Integrity determined that a process (\Device\HarddiskVolume3\Windows\System32\svchost.exe) attempted to load \Device\HarddiskVolume3\Program Files\Bonjour\mdnsNSP.dll that did not meet the Microsoft signing level requirements.'
+$ciKdmap   = 'Code Integrity determined that a process (\Device\HarddiskVolume3\Windows\System32\services.exe) attempted to load \Device\HarddiskVolume3\Users\bob\AppData\Local\Temp\iqvw64e.sys that did not meet the Microsoft signing level requirements.'
+$ciCheatFr = "L'integrite du code a determine qu'un processus (\Device\HarddiskVolume3\Windows\System32\services.exe) a tente de charger \Device\HarddiskVolume3\Users\bob\Desktop\engineowning_drv.sys qui ne repond pas aux exigences de niveau de signature."
+Test-Case "CILOG VRAI-POSITIF : kdmapper (iqvw64e.sys charge depuis Temp, refuse par Code Integrity) => WARN avec le chemin + la date" {
+    $h = Get-CiLogHits -Events @(@{Id=3033;Time='2026-09-01 21:00';Message=$ciKdmap}) -FlagPatterns (Get-CheatFlagPatterns)
+    ($h.Count -eq 1) -and ($h[0].Level -eq 'WARN') -and ($h[0].Path -match 'iqvw64e\.sys$') -and ($h[0].Time -eq '2026-09-01 21:00') -and (Test-UserZoneDriverPath $h[0].Path)
+}
+Test-Case "CILOG VRAI-POSITIF : driver au nom de cheat DISTINCTIF, message en FRANCAIS => FLAG (on lit les chemins, pas la langue)" {
+    $h = Get-CiLogHits -Events @(@{Id=3033;Time='t';Message=$ciCheatFr}) -FlagPatterns (Get-CheatFlagPatterns)
+    ($h.Count -eq 1) -and ($h[0].Level -eq 'FLAG') -and ($h[0].Path -match 'engineowning_drv\.sys$')
+}
+Test-Case "CILOG GARDE-FOU (bruit reel mesure 14/09) : une DLL legitime refusee (Bonjour mdnsNSP.dll) => AUCUN hit ; le process svchost.exe n'est jamais un hit" {
+    $h = Get-CiLogHits -Events @(@{Id=3033;Time='t';Message=$ciBonjour}) -FlagPatterns (Get-CheatFlagPatterns)
+    ($h.Count -eq 0)
+}
+Test-Case "CILOG : event 3004 (integrite non verifiable) sur un .sys systeme => WARN (vieux driver possible) ; null/vide => 0 hit, pas de crash" {
+    $h = Get-CiLogHits -Events @(@{Id=3004;Time='t';Message='Windows is unable to verify the image integrity of the file \Device\HarddiskVolume3\Windows\System32\drivers\gdrv.sys because file hash could not be found on the system.'}) -FlagPatterns (Get-CheatFlagPatterns)
+    ($h.Count -eq 1) -and ($h[0].Level -eq 'WARN') -and ((Get-CiLogHits -Events $null -FlagPatterns @()).Count -eq 0) -and ((Get-CiLogHits -Events @() -FlagPatterns @()).Count -eq 0)
+}
+Test-Case "Sonde Journal Code Integrity presente dans le rapport et jamais FLAG sur ce PC (OK/INFO/WARN/NA)" {
+    $p = $statuses.GetEnumerator() | Where-Object { $_.Key -like '*Code Integrity*' } | Select-Object -First 1
+    if (-not $p) { Write-Host '      (sonde CILOG absente)' -ForegroundColor DarkYellow; return $false }
+    ($p.Value -in @('OK','INFO','WARN','NA'))
+}
+Test-Case "Get-Verdict : CILOG est un artefact anti-wipe INDEPENDANT => CILOG FLAG + PREFETCH FLAG = ROUGE ; CILOG FLAG seul = SUSPECT" {
+    $c = New-ProbeResult -Id 'CILOG' -Name x -Status 'FLAG' -Severity 2
+    $p = New-ProbeResult -Id 'PREFETCH' -Name y -Status 'FLAG' -Severity 2
+    ((Get-Verdict @($c,$p)) -eq 'ROUGE') -and ((Get-Verdict @($c)) -eq 'SUSPECT') -and (@($script:AntiWipeIds) -contains 'CILOG')
+}
+
+# --- BYOVD / mapper : service de driver enregistre depuis un dossier utilisateur ---
+Test-Case "KDRV VRAI-POSITIF : service de driver qui pointe sous \Users\...\Temp (pattern kdmapper) => zone user => WARN" {
+    (Test-UserZoneDriverPath '\??\C:\Users\bob\AppData\Local\Temp\iqvw64e.sys') -and
+    ((Get-DriverAssessment -UnsignedCount 0 -VulnerableCount 0 -UserZoneCount 1).Status -eq 'WARN')
+}
+Test-Case "KDRV GARDE-FOU (cas reel mesure 14/09) : \ProgramData (anti-triche Battle.net randgrid.sys) et \SystemRoot ne sont PAS une zone user" {
+    (-not (Test-UserZoneDriverPath '\??\C:\ProgramData\Battle.net_components\randgridauks\randgrid.sys')) -and
+    (-not (Test-UserZoneDriverPath '\SystemRoot\System32\drivers\x.sys')) -and
+    (-not (Test-UserZoneDriverPath 'system32\DRIVERS\usersdrv.sys')) -and
+    (-not (Test-UserZoneDriverPath $null))
+}
+Test-Case "Get-DriverAssessment : 0 partout (UserZoneCount omis = compat) => OK" {
+    (Get-DriverAssessment -UnsignedCount 0 -VulnerableCount 0).Status -eq 'OK'
+}
+
+# --- MuiCache : chemin de chaque exe lance, jamais purge par Windows ---
+Test-Case "MuiCache VRAI-POSITIF : 'C:\x\engineowning.exe.FriendlyAppName' => chemin extrait => FLAG via le classement 2 niveaux" {
+    $p = ConvertFrom-MuiCacheName 'C:\x\engineowning.exe.FriendlyAppName'
+    $a = Get-WerCrashHits -Names @($p) -FlagPatterns (Get-CheatFlagPatterns) -WarnPatterns $script:CheatWarnWords
+    ($p -eq 'C:\x\engineowning.exe') -and ($a.Flag.Count -eq 1)
+}
+Test-Case "MuiCache : valeurs de service (LangID) et suffixe ApplicationCompany geres ; exe banal => 0 hit" {
+    $a = Get-WerCrashHits -Names @((ConvertFrom-MuiCacheName 'C:\Program Files\MSI\x.exe.ApplicationCompany')) -FlagPatterns (Get-CheatFlagPatterns) -WarnPatterns $script:CheatWarnWords
+    ((ConvertFrom-MuiCacheName 'LangID') -eq '') -and ((ConvertFrom-MuiCacheName '') -eq '') -and ($a.Flag.Count -eq 0) -and ($a.Warn.Count -eq 0)
+}
+
+# --- Rapport HTML : verdict + action en tete, FLAG/WARN deplies, le reste replie, empreinte du script ---
+Test-Case "HTML : ACTION + empreinte du script en tete, sections repliables (<details>), 'Autres sondes' APRES les points chauds" {
+    if ($html.Count -lt 1) { return $false }
+    $h = Get-Content $html[0].FullName -Raw
+    ($h -match 'ACTION') -and ($h -match 'Empreinte du script') -and ($h -match '<details') -and ($h -match 'Autres sondes') -and
+    ($h.IndexOf('a regarder') -lt $h.IndexOf('Autres sondes') -or $h.IndexOf('Aucun FLAG ni WARN') -lt $h.IndexOf('Autres sondes'))
+}
+Test-Case "Terminal : progression par sonde (compteur i/N) presente dans le code d'execution" {
+    $src = [IO.File]::ReadAllText($ScriptPath)
+    ($src -match 'Write-ProbeLine \$r -Index \$idx -Total \$probes\.Count')
 }
 # ---------------------------------------------------------------------------
 Write-Host ""
