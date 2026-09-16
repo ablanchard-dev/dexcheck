@@ -10,6 +10,20 @@ rem  fenetre qui se refermait aussitot. Le pause final garde la fenetre ouverte
 rem  quoi qu'il arrive : rien ne disparait dans le dos du moderateur.
 rem ============================================================================
 
+rem Double-clic DANS le zip : Windows n'extrait que ce .bat dans un dossier
+rem temporaire, DexCheck.ps1 n'est pas a cote. On le dit en clair, avant l'UAC.
+if not exist "%~dp0DexCheck.ps1" (
+    echo.
+    echo   Le dossier n'est pas extrait.
+    echo.
+    echo   1. Ferme cette fenetre.
+    echo   2. Clic droit sur le fichier .zip telecharge, puis "Extraire tout".
+    echo   3. Ouvre le dossier extrait et double-clique LANCER-LE-CHECK.bat.
+    echo.
+    pause
+    exit /b 1
+)
+
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" 2>nul
@@ -41,25 +55,11 @@ echo   ==================
 echo.
 echo   A faire en partage d'ecran avec un responsable Warzup.
 echo   Le check LIT ton PC et produit un rapport. Il ne modifie rien.
+echo   Ne ferme pas la fenetre avant la fin.
 echo.
 
-set "NONCE="
-set /p "NONCE=  Mot dicte par le moderateur (laisse vide + Entree si aucun) : "
-
-set "DEEP="
-set /p "DEEP=  Mode approfondi ? (uniquement si un responsable le demande - plus long) [o/N] : "
-
-set "DEEPFLAG="
-if /i "%DEEP%"=="o"   set "DEEPFLAG= -Deep"
-if /i "%DEEP%"=="oui" set "DEEPFLAG= -Deep"
-if /i "%DEEP%"=="y"   set "DEEPFLAG= -Deep"
-
-echo.
-if defined NONCE (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0DexCheck.ps1" -NoElevate -Nonce "%NONCE%"%DEEPFLAG%
-) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0DexCheck.ps1" -NoElevate%DEEPFLAG%
-)
+rem Un seul mode : le check complet. Aucune question.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0DexCheck.ps1" -NoElevate -NoPause -Deep
 
 echo.
 pause

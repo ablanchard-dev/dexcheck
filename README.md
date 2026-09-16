@@ -15,7 +15,7 @@ runs it on a screen-share while a moderator watches the output scroll by.
 1. **Télécharger** — bouton vert **Code** → **Download ZIP**.
 2. **Débloquer** — clic droit sur le `.zip` → **Propriétés** → cocher **Débloquer** (en bas) → **OK**, *avant* d'extraire. Les scripts ne sont pas signés ; ça retire l'étiquette « venu d'internet » → Windows n'affiche aucun avertissement.
 3. **Extraire** — clic droit sur le `.zip` → **Extraire tout**.
-4. **Lancer** — double-clic sur **`LANCER-LE-CHECK.bat`**, tape le mot du modérateur s'il t'en donne un (sinon appuie sur **Entrée**), puis accepte la fenêtre bleue (**UAC → Oui**). Un rapport `.txt` + `.html` arrive sur le **Bureau** avec une empreinte **SHA-256**.
+4. **Lancer** — ouvre le dossier extrait, double-clic sur **`LANCER-LE-CHECK.bat`**, accepte la fenêtre bleue (**UAC → Oui**). Aucune question : le check complet tourne. Un rapport `.txt` + `.html` arrive sur le **Bureau** avec une empreinte **SHA-256**.
 
 Guide joueur détaillé (FR) : `LANCER-LE-CHECK.txt`. Vérif visuelle du setup (DMA / 2e PC) : `CHECK-CONSOLE-SETUP.txt`.
 
@@ -30,7 +30,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$p=(Get-ChildItem $HOME 
 1. **Download** — green **Code** button → **Download ZIP**.
 2. **Unblock** — right-click the `.zip` → Properties → tick **Unblock** → OK, *before* extracting. The scripts are unsigned; this removes the Mark-of-the-Web so Windows shows no security warning.
 3. **Extract** — right-click the `.zip` → Extract All.
-4. **Run** — double-click **`LANCER-LE-CHECK.bat`**, type the moderator's word if given (else just Enter), accept the UAC prompt. A `.txt` + `.html` report lands on the Desktop with a SHA-256 fingerprint.
+4. **Run** — open the extracted folder, double-click **`LANCER-LE-CHECK.bat`**, accept the UAC prompt. No questions: the full check runs. A `.txt` + `.html` report lands on the Desktop with a SHA-256 fingerprint.
 
 Player guide (French): `LANCER-LE-CHECK.txt`. Visual setup check (DMA / second PC): `CHECK-CONSOLE-SETUP.txt`.
 
@@ -91,9 +91,9 @@ download quarantine.
 
 ## Usage
 
-Windows — simplest: double-click `LANCER-LE-CHECK.bat`. It prompts for the
-moderator's nonce (optional) and whether to run the deeper pass (`o` only if a
-moderator asks), then runs the check; the script self-elevates via UAC. The scripts are unsigned, so a downloaded copy carries the Mark-of-the-Web
+Windows — simplest: double-click `LANCER-LE-CHECK.bat` from the extracted
+folder. It asks nothing and runs the full check (`-Deep`); it elevates via UAC,
+and if launched from inside the `.zip` it says to extract first. The scripts are unsigned, so a downloaded copy carries the Mark-of-the-Web
 and Windows shows a one-time "Run anyway" warning — to avoid it entirely,
 right-click the downloaded `.zip` → Properties → tick **Unblock** → OK *before*
 extracting. The launcher also strips the Mark-of-the-Web from its own folder on

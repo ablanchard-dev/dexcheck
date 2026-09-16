@@ -1,12 +1,11 @@
 ﻿<#
     DexCheck.ps1 - PC check forensic anti-triche (CoD/Warzone)
     Auteur : Alexandre Blanchard (DrDexter). Deploye pour la communaute Warzup.
-    Usage joueur : clic-droit > Executer avec PowerShell, ou via LANCER-LE-CHECK.txt.
-    Le script s'auto-eleve en admin (UAC). En screenshare, le rapport defile en direct :
-    c'est CA la preuve. Le hash SHA256 affiche a la fin rend le rapport SAUVEGARDE
-    infalsifiable (toute edition ulterieure du fichier change le hash) ; il ne prouve PAS
-    un run honnete. Confiance = le MODO fournit le script (ou en verifie le hash) et
-    regarde le direct, le joueur ne se check pas avec un script qu'il a apporte.
+    Usage joueur : double-clic sur LANCER-LE-CHECK.bat (check complet, aucune question).
+    Le script s'auto-eleve en admin (UAC). En screenshare, le resultat defile en direct et
+    le detail de chaque alerte s'affiche a la fin : c'est CA la preuve. Confiance = le MODO
+    fournit le script et regarde le direct, le joueur ne se check pas avec un script qu'il
+    a apporte.
 
     Switches :
       -Deep       analyse approfondie (plus lent, pour un joueur deja suspect)
@@ -15,7 +14,7 @@
                   genere LIVE pour CETTE session (anti-rapport-prefabrique / anti-rejeu).
       -NoElevate  ne pas tenter l'elevation UAC (tests)
       -NoPause    ne pas attendre une touche a la fin (tests / automation)
-      -OutputDir  dossier de sortie du rapport (defaut : Bureau)
+      -OutputDir  dossier des fichiers de trace txt/html/csv (defaut : %TEMP%\DexCheck)
 
     Concu pour Windows 10/11, PowerShell 5.1+, 100% natif (aucune dependance).
 #>
@@ -299,6 +298,7 @@ public static class DexCheckUsnReader {
         public List<Rec> Recent = new List<Rec>();
         public long OldestTicks = 0;
         public long NewestTicks = 0;
+        public int StopError = 0;  // 0 = journal lu jusqu'au bout ; sinon code Win32 (-1 = garde de boucle)
     }
     static bool IsWordCh(char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'); }
     static bool WordMatch(string hay, string pat) {
@@ -348,13 +348,16 @@ public static class DexCheckUsnReader {
                 if (!DeviceIoControl(h, FSCTL_READ_USN_JOURNAL, inBuf, inSize, outBuf, bufSize, out got, IntPtr.Zero)) {
                     // 1181 = ERROR_JOURNAL_ENTRY_DELETED : StartUsn purge (journal qui tourne pendant
                     // le scan) -> on re-interroge et on repart du plus ancien record encore lisible.
-                    if (Marshal.GetLastWin32Error() == 1181 && requery < 8 &&
+                    int err = Marshal.GetLastWin32Error();
+                    if (err == 1181 && requery < 8 &&
                         DeviceIoControl(h, FSCTL_QUERY_USN_JOURNAL, IntPtr.Zero, 0, qOut, qSize, out qRet, IntPtr.Zero)) {
                         requery++;
                         jd = (USN_JOURNAL_DATA_V0)Marshal.PtrToStructure(qOut, typeof(USN_JOURNAL_DATA_V0));
                         r.StartUsn = jd.FirstUsn; r.UsnJournalID = jd.UsnJournalID;
                         continue;
                     }
+                    // Sortie sur erreur : scan PARTIEL. On le dit au lieu de rendre un resultat qui a l'air complet.
+                    res.StopError = err == 0 ? -1 : err;
                     break;
                 }
                 if (got <= 8) break;
@@ -399,6 +402,7 @@ public static class DexCheckUsnReader {
                 if (next == 0) break;
                 r.StartUsn = next;
             }
+            if (guard >= 500000 && res.StopError == 0) res.StopError = -1;
         } finally {
             if (qOut != IntPtr.Zero) Marshal.FreeHGlobal(qOut);
             if (inBuf != IntPtr.Zero) Marshal.FreeHGlobal(inBuf);
@@ -846,10 +850,15 @@ function Probe-DeletedFiles {
     $warnAll   = New-Object System.Collections.Generic.List[object]
     $recentAll = New-Object System.Collections.Generic.List[object]
     $readAny = $false
+    $partial = New-Object System.Collections.Generic.List[string]
     foreach ($drive in $drives) {
         $scan = $null
         try { $scan = Get-UsnScan -Volume $drive -FlagPatterns $flagPat -WarnPatterns $script:CheatWarnWords } catch { $details.Add("  $drive : USN illisible/inactif (ignore)"); continue }
         $readAny = $true
+        if ([int]$scan.StopError -ne 0) {
+            $partial.Add($drive)
+            $details.Add(("  {0} : lecture du journal INTERROMPUE (code {1}) - scan PARTIEL, les suppressions non lues n'ont pas ete examinees" -f $drive, $scan.StopError))
+        }
         $t = [int64]$scan.Total
         $grandTotal += $t
         if ($scan.OldestTicks -gt 0 -and $scan.NewestTicks -gt 0) {
@@ -865,7 +874,11 @@ function Probe-DeletedFiles {
     if (-not $readAny) {
         return (New-ProbeResult -Id 'DELFILES' -Name 'Fichiers supprimes (USN)' -Status 'NA' -Severity 0 -Summary "Aucun journal USN lisible (inactif sur tous les volumes ?)" -Details $details)
     }
-    $details.Add("Total suppressions (tous volumes) : $grandTotal. Chaque journal est scanne EN ENTIER ; le match suspect couvre 100%, pas un echantillon biaise vers les vieilles entrees.")
+    if ($partial.Count -gt 0) {
+        $details.Add("Total suppressions LUES : $grandTotal. Scan PARTIEL sur : $($partial -join ', ') ; ailleurs le journal est lu jusqu'au bout.")
+    } else {
+        $details.Add("Total suppressions (tous volumes) : $grandTotal. Chaque journal est scanne EN ENTIER ; le match suspect couvre 100%, pas un echantillon biaise vers les vieilles entrees.")
+    }
     $details.Add("NOTE fenetre : le journal USN 'tourne' (wrap) a sa taille max = une fenetre courte est NORMALE sur machine active ; tres courte sur PC ancien et peu actif = a creuser (purge/recreation).")
     $recent = @($recentAll | Sort-Object Time -Descending | Select-Object -First 10)
     if ($recent.Count -gt 0) {
@@ -873,7 +886,17 @@ function Probe-DeletedFiles {
         foreach ($d in $recent) { $details.Add(("  {0:yyyy-MM-dd HH:mm}  {1}" -f $d.Time, $d.Name)) }
     }
     $flagHits = @($flagAll | Sort-Object Time -Descending)
-    $warnHits = @($warnAll | Sort-Object Time -Descending)
+    # Un fichier source/doc supprime (config_loader.py, skill-map-loader.ts - mesure 16/09 sur un PC
+    # propre) n'est pas un loader de cheat : seul un mot FORT le garde (un colorbot aimbot.py existe).
+    $srcExt = '(?i)\.(py|pyc|ts|tsx|js|jsx|mjs|cjs|rs|go|java|kt|c|cc|cpp|h|hpp|cs|md|txt|json|yaml|yml|toml|xml|html|css|map|rkyv|lock)$'
+    $strong = @('aimbot','wallhack','triggerbot','unlockall','unlock_all','spoofer','hwidspoofer','injector','cheat')
+    $warnHits = @($warnAll | Where-Object {
+        $n = [string]$_.Name
+        # ponytail: assemblies .NET par prefixe (System.Runtime.Loader.dll) ; un cheat qui se nomme
+        # Microsoft.X.dll passe en OK ici, mais reste visible dans EXEC/Prefetch s'il a tourne.
+        $benign = ($n -match $srcExt) -or ($n -match '(?i)(^|[\s\\])(System|Microsoft)\.[\w.]+\.dll$')
+        -not ($benign -and -not (Test-AnyWord $n $strong))
+    } | Sort-Object Time -Descending)
     if ($flagHits.Count -gt 0) {
         $details.Add("SUPPRESSIONS AU NOM DE CHEAT (distinctif, tous volumes) :")
         foreach ($h in ($flagHits | Select-Object -First 25)) { $details.Add(("  {0:yyyy-MM-dd HH:mm}  {1}" -f $h.Time, $h.Name)) }
@@ -1648,7 +1671,9 @@ function Probe-PsHistory {
         return (New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'FLAG' -Severity 2 -Summary "$($flagHits.Count) telechargement(s)-et-execution d'une cible au nom de cheat distinctif" -Details $details)
     } elseif ($warnHits.Count -gt 0) {
         foreach ($h in $warnHits) { $details.Add("  download-and-exec : $($h.Line)") }
-        return (New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'WARN' -Severity 1 -Summary "$($warnHits.Count) commande(s) telecharger-et-executer - a verifier (dual-use : winutil/winget legitimes)" -Details $details)
+        # INFO, pas WARN : installer un logiciel par irm|iex (Claude, winutil, scoop) est banal. Mesure 16/09 :
+        # ce seul WARN mettait un PC propre en A VERIFIER. Seule une cible cheat distinctive pese (FLAG).
+        return (New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'INFO' -Severity 0 -Summary "$($warnHits.Count) commande(s) telecharger-et-executer, aucune vers une cible cheat connue" -Details $details)
     }
     New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'OK' -Severity 0 -Summary "$($lines.Count) ligne(s), aucun telecharger-et-executer" -Details $details
 }
@@ -2955,12 +2980,21 @@ function ConvertTo-HtmlText {
     return ($s -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;' -replace '"','&quot;')
 }
 
-function Resolve-Desktop {
-    try {
-        $d = [Environment]::GetFolderPath('Desktop')
-        if (-not [string]::IsNullOrWhiteSpace($d) -and (Test-Path $d)) { return $d }
-    } catch { }
-    return $env:USERPROFILE
+function Resolve-DefaultReportDir {
+    # Le resultat se lit dans la fenetre. Les fichiers (txt/html/csv) restent une trace technique :
+    # dans TEMP, jamais sur le Bureau du joueur.
+    Join-Path $env:TEMP 'DexCheck'
+}
+
+function Get-FindingScreenLines {
+    # PUR/testable. Le DETAIL de chaque WARN/FLAG (quel fichier, quelle commande), pour l'ecran de fin.
+    param($results)
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($r in @($results | Where-Object { $_.Status -in @('FLAG','WARN') })) {
+        $out.Add(("[{0}] {1} : {2}" -f $r.Status, $r.Name, $r.Summary))
+        foreach ($d in @($r.Details | Select-Object -Last 12)) { $out.Add(("    {0}" -f ([string]$d).Trim())) }
+    }
+    return ,$out
 }
 
 function Test-DirWritable {
@@ -3405,7 +3439,8 @@ function Invoke-DexCheck {
     }
 
     $script:RunStamp = $start.ToString('yyyyMMdd-HHmmss')
-    $preferredDir = if (-not [string]::IsNullOrWhiteSpace($OutputDir)) { $OutputDir } else { Resolve-Desktop }
+    $preferredDir = if (-not [string]::IsNullOrWhiteSpace($OutputDir)) { $OutputDir } else { Resolve-DefaultReportDir }
+    if (-not (Test-Path -LiteralPath $preferredDir)) { try { New-Item -ItemType Directory -Force -Path $preferredDir | Out-Null } catch { } }
     $script:ReportDir = if (Test-DirWritable $preferredDir) { $preferredDir } else { $env:TEMP }
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -3435,12 +3470,11 @@ function Invoke-DexCheck {
         try { $rep = Write-Reports -results $results -dir $script:ReportDir -start $start -degraded $degraded -deep ([bool]$Deep) } catch { }
     }
     if ($null -eq $rep) {
-        Write-Host "`n  [ERREUR] Impossible d'ecrire le rapport (Bureau et TEMP inaccessibles)." -ForegroundColor Red
+        Write-Host "`n  [ERREUR] Impossible d'ecrire le rapport (TEMP inaccessible)." -ForegroundColor Red
         if (-not $NoPause) { try { Read-Host "  Entree pour fermer" | Out-Null } catch { } }
         return
     }
 
-    $hash = try { (Get-FileHash -Path $rep.Txt -Algorithm SHA256 -ErrorAction Stop).Hash } catch { 'n/a' }
     Write-Host ""
     Write-Host "  ------------------------------------------------------------------" -ForegroundColor Cyan
     $vcol = switch ($rep.Verdict) { 'CLEAN' {'Green'} 'A VERIFIER' {'Yellow'} 'SUSPECT' {'Red'} 'ROUGE' {'Red'} default {'Gray'} }
@@ -3451,9 +3485,12 @@ function Invoke-DexCheck {
     Write-Host "  ==================================================================" -ForegroundColor $vcol
     Write-Host ("   ACTION  : {0}" -f (Get-VerdictAction $rep.Verdict)) -ForegroundColor $vcol
     foreach($rl in (Get-VerdictReasoning $results)){ Write-Host ("   $rl") -ForegroundColor DarkGray }
-    Write-Host ("   Rapport : {0}" -f $rep.Txt) -ForegroundColor Gray
-    Write-Host ("   HTML    : {0}" -f $rep.Html) -ForegroundColor Gray
-    Write-Host ("   SHA256  : {0}" -f $hash) -ForegroundColor Cyan
+    $finding = Get-FindingScreenLines $results
+    if ($finding.Count -gt 0) {
+        Write-Host ""
+        Write-Host "   CE QUI A ETE TROUVE :" -ForegroundColor $vcol
+        foreach ($fl in $finding) { Write-Host ("   $fl") -ForegroundColor Gray }
+    }
     Write-Host "  ------------------------------------------------------------------" -ForegroundColor Cyan
     Write-Host ""
 

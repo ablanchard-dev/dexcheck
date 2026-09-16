@@ -789,18 +789,61 @@ Section "E. VRAI-POSITIF (simulation : on plante la trace qu'un cheat laisse, on
 
 Test-Case "USN vrai-positif : un fichier au nom de cheat SUPPRIME est capture end-to-end (coeur anti-wipe prouve, pas juste synthetique)" {
     if (-not $adminE) { Write-Host "      (admin requis pour lire l'USN brut -> skip non bloquant ; relancer en admin pour la preuve)" -ForegroundColor DarkGray; return $true }
-    $token = 'baitztoken'
+    # Token UNIQUE par run : avec un token fixe, les suppressions des runs PRECEDENTS restaient dans le
+    # journal et le test passait meme si l'appat n'etait jamais plante (mutation 16/09 : resté vert).
+    $token = 'baitz' + [guid]::NewGuid().ToString('N').Substring(0, 12)
     $vol   = (Split-Path $env:TEMP -Qualifier)   # ex 'C:'
-    $bait  = Join-Path $env:TEMP 'dexcheck-selftest-baitztoken.exe'
+    $bait  = Join-Path $env:TEMP ('dexcheck-selftest-' + $token + '.exe')
     try {
         Set-Content -Path $bait -Value 'dexcheck true-positive self-test' -ErrorAction Stop
         Remove-Item -Path $bait -Force -ErrorAction Stop
     } catch { Write-Host ("      -> impossible de planter l'appat : {0}" -f $_.Exception.Message) -ForegroundColor DarkYellow; return $false }
-    Start-Sleep -Milliseconds 250
-    $scan = Get-UsnScan -Volume $vol -FlagPatterns @($token) -WarnPatterns @()
-    $caught = @($scan.FlagSuspects | Where-Object { [string]$_.Name -match $token })
-    if ($caught.Count -lt 1) { Write-Host "      -> la suppression plantee n'a PAS ete retrouvee dans le journal USN" -ForegroundColor DarkYellow }
+    # Le journal USN est ecrit en differe : une attente fixe (250 ms) ratait la trace au premier run a
+    # froid (1 FAIL sur 9 runs mesure le 16/09). On relit jusqu'a 3 s au lieu de parier sur un delai.
+    $caught = @()
+    for ($i = 0; $i -lt 12 -and $caught.Count -lt 1; $i++) {
+        Start-Sleep -Milliseconds 250
+        $scan = Get-UsnScan -Volume $vol -FlagPatterns @($token) -WarnPatterns @()
+        $caught = @($scan.FlagSuspects | Where-Object { [string]$_.Name -match $token })
+    }
+    if ($caught.Count -lt 1) { Write-Host ("      -> la suppression plantee n'a PAS ete retrouvee dans le journal USN (StopError={0}, total={1})" -f $scan.StopError, $scan.Total) -ForegroundColor DarkYellow }
     ($caught.Count -ge 1)
+}
+# 16/09 : le lecteur USN sortait de sa boucle sur toute erreur autre que 1181 SANS le dire, et la sonde
+# ecrivait quand meme "Chaque journal est scanne EN ENTIER". Un scan coupe doit se declarer partiel.
+Test-Case "DELFILES : un scan USN interrompu (StopError) est declare PARTIEL, jamais 'EN ENTIER'" {
+    if (-not $adminE) { Write-Host "      (admin requis -> skip non bloquant)" -ForegroundColor DarkGray; return $true }
+    $orig = ${function:Get-UsnScan}
+    try {
+        ${function:script:Get-UsnScan} = { param($Volume, $FlagPatterns, $WarnPatterns)
+            [pscustomobject]@{ Total = 5; FlagSuspects = @(); WarnSuspects = @(); Recent = @(); OldestTicks = 0; NewestTicks = 0; StopError = 21 } }
+        $r = Probe-DeletedFiles
+        $txt = ($r.Details -join "`n")
+        ($txt -match '(?i)PARTIEL') -and ($txt -match '21') -and ($txt -notmatch 'EN ENTIER')
+    } finally { ${function:script:Get-UsnScan} = $orig }
+}
+# Mesure 16/09 sur le PC d'Alex (propre) : verdict A VERIFIER a cause de config_loader.py,
+# skill-map-loader.ts, scan-loader.md supprimes. Un fichier source/doc n'est pas un loader de cheat :
+# le mot generique ne doit alerter que sur ce qui peut s'executer (ou une archive qui le contient).
+Test-Case "DELFILES : mot generique sur un fichier source/doc (.py .ts .md) => PAS de WARN ; sur un .exe => WARN" {
+    if (-not $adminE) { Write-Host "      (admin requis -> skip non bloquant)" -ForegroundColor DarkGray; return $true }
+    $orig = ${function:Get-UsnScan}
+    $now = Get-Date
+    try {
+        ${function:script:Get-UsnScan} = { param($Volume, $FlagPatterns, $WarnPatterns)
+            [pscustomobject]@{ Total = 3; FlagSuspects = @(); Recent = @(); OldestTicks = 0; NewestTicks = 0; StopError = 0
+                WarnSuspects = @([pscustomobject]@{ Name = 'config_loader.py'; Time = $now }, [pscustomobject]@{ Name = 'skill-map-loader.ts'; Time = $now }, [pscustomobject]@{ Name = 'scan-loader.md'; Time = $now }, [pscustomobject]@{ Name = 'System.Runtime.Loader.dll'; Time = $now }) } }.GetNewClosure()
+        $dev = Probe-DeletedFiles
+        ${function:script:Get-UsnScan} = { param($Volume, $FlagPatterns, $WarnPatterns)
+            [pscustomobject]@{ Total = 2; FlagSuspects = @(); Recent = @(); OldestTicks = 0; NewestTicks = 0; StopError = 0
+                WarnSuspects = @([pscustomobject]@{ Name = 'config_loader.py'; Time = $now }, [pscustomobject]@{ Name = 'cheat-loader.exe'; Time = $now }) } }.GetNewClosure()
+        $mix = Probe-DeletedFiles
+        ${function:script:Get-UsnScan} = { param($Volume, $FlagPatterns, $WarnPatterns)
+            [pscustomobject]@{ Total = 1; FlagSuspects = @(); Recent = @(); OldestTicks = 0; NewestTicks = 0; StopError = 0
+                WarnSuspects = @([pscustomobject]@{ Name = 'cod_aimbot.py'; Time = $now }) } }.GetNewClosure()
+        $py = Probe-DeletedFiles
+        ($dev.Status -ne 'WARN') -and ($mix.Status -eq 'WARN') -and (($mix.Details -join "`n") -notmatch 'config_loader\.py') -and ($py.Status -eq 'WARN')
+    } finally { ${function:script:Get-UsnScan} = $orig }
 }
 Test-Case "USN vrai-positif : le token bidon N'EST PAS un vrai mot de cheat (l'appat ne pollue pas les vrais runs)" {
     $flag = Get-CheatFlagPatterns
@@ -1101,7 +1144,7 @@ Test-Case "Launcher : s'eleve lui-meme (net session + Start-Process RunAs + exit
     ($script:BatText -match '(?i)exit /b')
 }
 Test-Case "Launcher : appelle DexCheck.ps1 avec -NoElevate (pas de seconde elevation)" {
-    $invokes = ($script:BatText -split "\r?\n") | Where-Object { ($_ -match '(?i)powershell') -and ($_ -match '(?i)DexCheck\.ps1') }
+    $invokes = @(($script:BatText -split "\r?\n") | Where-Object { ($_ -match '(?i)powershell') -and ($_ -match '(?i)DexCheck\.ps1') })
     ($invokes.Count -ge 1) -and (@($invokes | Where-Object { $_ -notmatch '(?i)-NoElevate' }).Count -eq 0)
 }
 Test-Case "Launcher : se termine par pause (dernier chemin de sortie)" {
@@ -1131,6 +1174,28 @@ Test-Case "Launcher : le test d'echec d'elevation lit la valeur VIVE (if errorle
     # qui explique justement le piege ferait echouer le test.
     $codeSeul = ($apresStart -split "\r?\n" | Where-Object { $_.Trim() -notmatch '^(?i)rem\b' }) -join "`n"
     ($codeSeul -notmatch '%errorlevel%')
+}
+# Retour terrain 16/09 : le joueur double-clique le .bat DANS le zip. Windows n'extrait que ce fichier
+# dans Temp, DexCheck.ps1 n'est pas a cote, et powershell affichait une erreur -File incomprehensible.
+# Test d'EXECUTION (pas de structure) : le .bat seul dans un dossier vide doit expliquer quoi faire.
+Test-Case "Launcher EXECUTE seul (zip non extrait) => dit d'extraire le zip, pas d'erreur -File" {
+    if (-not $adminE) { Write-Host "      (admin requis : le .bat s'eleverait -> skip non bloquant)" -ForegroundColor DarkGray; return $true }
+    $d = Join-Path $env:TEMP ('dexcheck-batseul-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $d | Out-Null
+    try {
+        Copy-Item -LiteralPath $script:BatPath -Destination $d
+        $out = (cmd /c "`"$(Join-Path $d 'LANCER-LE-CHECK.bat')`" < nul" 2>&1 | Out-String)
+        ($out -match '(?i)extrai') -and ($out -notmatch '(?i)-File')
+    } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+}
+# Retour terrain 16/09 (Alex) : « c'est quoi ce truc mot de passe ou mode approfondi ». Un seul geste :
+# double-clic, UAC, le check COMPLET tourne. Aucune question.
+Test-Case "Launcher : ne pose AUCUNE question (pas de set /p)" {
+    $script:BatText -and ($script:BatText -notmatch '(?i)set\s+/p')
+}
+Test-Case "Launcher : lance toujours le check complet (-Deep sur chaque appel)" {
+    $invokes = @(($script:BatText -split "\r?\n") | Where-Object { ($_ -match '(?i)powershell') -and ($_ -match '(?i)DexCheck\.ps1') })
+    ($invokes.Count -ge 1) -and (@($invokes | Where-Object { $_ -notmatch '(?i)-Deep' }).Count -eq 0)
 }
 
 
@@ -1496,6 +1561,52 @@ Test-Case "HTML : ACTION + empreinte du script en tete, sections repliables (<de
 Test-Case "Terminal : progression par sonde (compteur i/N) presente dans le code d'execution" {
     $src = [IO.File]::ReadAllText($ScriptPath)
     ($src -match 'Write-ProbeLine \$r -Index \$idx -Total \$probes\.Count')
+}
+
+Section "H. RETOUR TERRAIN 16/09 (Alex) : PC propre = propre, resultat dans la fenetre, rien sur le Bureau"
+# PC d'Alex, jamais rien de louche : A VERIFIER a cause de 'irm https://claude.ai/install.ps1 | iex'.
+# Installer un logiciel par irm|iex est banal : liste en INFO (visible), jamais un WARN sur verdict.
+Test-Case "PSHIST : telecharger-et-executer vers une cible NON cheat => INFO (ne pese pas sur le verdict)" {
+    $saved = $env:APPDATA
+    $d = Join-Path $env:TEMP ('dexcheck-pshist-' + [guid]::NewGuid().ToString('N'))
+    try {
+        $h = Join-Path $d 'Microsoft\Windows\PowerShell\PSReadLine'
+        New-Item -ItemType Directory -Force $h | Out-Null
+        Set-Content -LiteralPath (Join-Path $h 'ConsoleHost_history.txt') -Value 'irm https://claude.ai/install.ps1 | iex'
+        $env:APPDATA = $d
+        $r = Probe-PsHistory
+        ($r.Status -eq 'INFO') -and ($r.Severity -eq 0) -and (($r.Details -join "`n") -match 'claude\.ai')
+    } finally { $env:APPDATA = $saved; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+}
+Test-Case "PSHIST : cible au nom de cheat distinctif => reste FLAG" {
+    $saved = $env:APPDATA
+    $d = Join-Path $env:TEMP ('dexcheck-pshist-' + [guid]::NewGuid().ToString('N'))
+    try {
+        $h = Join-Path $d 'Microsoft\Windows\PowerShell\PSReadLine'
+        New-Item -ItemType Directory -Force $h | Out-Null
+        Set-Content -LiteralPath (Join-Path $h 'ConsoleHost_history.txt') -Value 'irm https://engineowning.to/loader.ps1 | iex'
+        $env:APPDATA = $d
+        (Probe-PsHistory).Status -eq 'FLAG'
+    } finally { $env:APPDATA = $saved; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+}
+# « les fichiers de resultats on s'en fout, on veut le resultat direct, pas sur le Bureau »
+Test-Case "Sortie : sans -OutputDir, les fichiers vont dans TEMP, JAMAIS sur le Bureau" {
+    $dir = Resolve-DefaultReportDir
+    $desk = try { [Environment]::GetFolderPath('Desktop') } catch { '' }
+    ($dir -like "$env:TEMP*") -and (-not $desk -or ($dir -notlike "$desk*"))
+}
+Test-Case "Ecran de fin : pas de chemin de fichier ni de SHA ; le DETAIL de chaque WARN/FLAG est affiche" {
+    $res = @(
+        (New-ProbeResult -Id 'DELFILES' -Name 'Fichiers supprimes (USN)' -Status 'WARN' -Severity 1 -Summary 's' -Details @('  2026-09-16 20:29  [C:] cheat-loader.exe')),
+        (New-ProbeResult -Id 'PREFETCH' -Name 'Prefetch' -Status 'OK' -Severity 0 -Summary 'ok' -Details @('ne-doit-pas-apparaitre'))
+    )
+    $lines = (Get-FindingScreenLines $res) -join "`n"
+    ($lines -match 'cheat-loader\.exe') -and ($lines -notmatch 'ne-doit-pas-apparaitre') -and
+    ([IO.File]::ReadAllText($ScriptPath) -notmatch 'Write-Host \("   (Rapport|HTML|SHA256)\s*:')
+}
+Test-Case "Launcher : passe -NoPause (une seule attente de touche, celle du .bat)" {
+    $invokes = @(($script:BatText -split "\r?\n") | Where-Object { ($_ -match '(?i)powershell') -and ($_ -match '(?i)DexCheck\.ps1') })
+    ($invokes.Count -ge 1) -and (@($invokes | Where-Object { $_ -notmatch '(?i)-NoPause' }).Count -eq 0)
 }
 # ---------------------------------------------------------------------------
 Write-Host ""

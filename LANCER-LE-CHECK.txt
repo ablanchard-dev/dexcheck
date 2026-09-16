@@ -11,13 +11,12 @@ METHODE ZERO AVERTISSEMENT (recommandee)
    coche "Debloquer" (case en bas a droite) > OK.
    -> ca retire l'etiquette "venu d'internet", donc AUCUN avertissement ensuite.
 3. Clic droit sur le .zip > "Extraire tout".
-4. Double-clique sur   LANCER-LE-CHECK.bat
-5. Si le moderateur te dicte un mot, tape-le (sinon appuie sur Entree).
-6. "Mode approfondi ? [o/N]" : tape N (Entree) par defaut. Reponds o UNIQUEMENT
-   si un responsable te le demande (check plus complet, plus long).
-7. Fenetre bleue (UAC) : clique OUI (pour lire suppressions, journaux...).
-8. Le check se deroule. A la fin : un VERDICT, un rapport .txt/.html sur le
-   Bureau, et un SHA256 (empreinte du rapport, note-le / screen). Entree pour fermer.
+4. Ouvre le dossier extrait et double-clique sur   LANCER-LE-CHECK.bat
+   (pas depuis l'interieur du .zip : le check ne trouverait pas ses fichiers).
+5. Fenetre bleue (UAC) : clique OUI (pour lire suppressions, journaux...).
+6. Le check complet se deroule (environ 1 a 2 minutes), aucune question.
+   A la fin : le VERDICT et le detail de ce qui a ete trouve, directement
+   dans la fenetre. Appuie sur une touche pour fermer.
 
 SI TU AS OUBLIE L'ETAPE 2
 -------------------------
@@ -33,10 +32,7 @@ Ouvre le dossier extrait (celui qui contient DexCheck.ps1), clique dans la barre
 d'adresse en haut, tape  powershell  puis Entree. Une fenetre PowerShell s'ouvre
 DANS ce dossier. Colle :
 
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\DexCheck.ps1
-
-Pour le mode approfondi, ajoute -Deep a la fin ; pour le mot du modo, ajoute
--Nonce "le-mot". Exemple :  ...\DexCheck.ps1 -Deep -Nonce "panda-47-bleu"
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\DexCheck.ps1 -Deep
 
 Si tu refuses l'UAC, le check tourne quand meme mais en mode partiel (certaines
 verifications affichent "N/A") - le responsable le verra a l'ecran.
