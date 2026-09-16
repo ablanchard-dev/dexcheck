@@ -797,16 +797,30 @@ Test-Case "USN vrai-positif : un fichier au nom de cheat SUPPRIME est capture en
     try {
         Set-Content -Path $bait -Value 'dexcheck true-positive self-test' -ErrorAction Stop
         Remove-Item -Path $bait -Force -ErrorAction Stop
+        $planted = Get-Date
     } catch { Write-Host ("      -> impossible de planter l'appat : {0}" -f $_.Exception.Message) -ForegroundColor DarkYellow; return $false }
-    # Le journal USN est ecrit en differe : une attente fixe (250 ms) ratait la trace au premier run a
-    # froid (1 FAIL sur 9 runs mesure le 16/09). On relit jusqu'a 3 s au lieu de parier sur un delai.
+    # L'enregistrement USN de SUPPRESSION n'est ecrit qu'a la fermeture du dernier handle du fichier.
+    # Mesure 16/09 : 1 echec sur ~15 suites, toujours le 1er run, avec StopError=0 et le journal lu en
+    # entier (la trace n'y etait pas encore apres 3 s) ; 0/70 hors suite, meme sous charge disque.
+    # Hypothese « ecriture differee » REFUTEE le 16/09 : echec identique avec 15 s d'attente.
+    # Le diagnostic ci-dessous tranche entre « lecteur qui s'arrete avant la fin du journal »
+    # (derniere entree lue < heure de l'appat) et « suppression jamais journalisee » (entrees
+    # posterieures presentes, pas la notre).
     $caught = @()
-    for ($i = 0; $i -lt 12 -and $caught.Count -lt 1; $i++) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    for ($i = 0; $i -lt 60 -and $caught.Count -lt 1; $i++) {
         Start-Sleep -Milliseconds 250
         $scan = Get-UsnScan -Volume $vol -FlagPatterns @($token) -WarnPatterns @()
         $caught = @($scan.FlagSuspects | Where-Object { [string]$_.Name -match $token })
     }
-    if ($caught.Count -lt 1) { Write-Host ("      -> la suppression plantee n'a PAS ete retrouvee dans le journal USN (StopError={0}, total={1})" -f $scan.StopError, $scan.Total) -ForegroundColor DarkYellow }
+    if ($caught.Count -ge 1 -and $sw.Elapsed.TotalSeconds -gt 3) {
+        Write-Host ("      (trace USN apparue apres {0:N1} s : ecriture differee de la suppression)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor DarkYellow
+    }
+    if ($caught.Count -lt 1) {
+        $newest = if ($scan.NewestTicks -gt 0) { [DateTime]::FromFileTime($scan.NewestTicks).ToString('HH:mm:ss.fff') } else { '-' }
+        Write-Host ("      -> la suppression plantee n'a PAS ete retrouvee dans le journal USN (StopError={0}, total={1}, appat={2}, derniere entree lue={3}, fichier encore present={4})" -f `
+            $scan.StopError, $scan.Total, $planted.ToString('HH:mm:ss.fff'), $newest, (Test-Path -LiteralPath $bait)) -ForegroundColor DarkYellow
+    }
     ($caught.Count -ge 1)
 }
 # 16/09 : le lecteur USN sortait de sa boucle sur toute erreur autre que 1181 SANS le dire, et la sonde
