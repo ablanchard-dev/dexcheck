@@ -5,7 +5,7 @@
 Forensic anti-cheat PC check for Call of Duty / Warzone, run live during a
 supervised screen-share. Two native scripts — Windows (PowerShell) and macOS
 (bash) — that read the machine, never modify it, and produce a timestamped
-report plus a SHA-256 fingerprint of that report.
+verdict with the detail of every finding, printed in the window.
 
 Built for the Warzup community to vet players reported for cheating: the player
 runs it on a screen-share while a moderator watches the output scroll by.
@@ -15,7 +15,7 @@ runs it on a screen-share while a moderator watches the output scroll by.
 1. **Télécharger** — bouton vert **Code** → **Download ZIP**.
 2. **Débloquer** — clic droit sur le `.zip` → **Propriétés** → cocher **Débloquer** (en bas) → **OK**, *avant* d'extraire. Les scripts ne sont pas signés ; ça retire l'étiquette « venu d'internet » → Windows n'affiche aucun avertissement.
 3. **Extraire** — clic droit sur le `.zip` → **Extraire tout**.
-4. **Lancer** — ouvre le dossier extrait, double-clic sur **`LANCER-LE-CHECK.bat`**, accepte la fenêtre bleue (**UAC → Oui**). Aucune question : le check complet tourne. Un rapport `.txt` + `.html` arrive sur le **Bureau** avec une empreinte **SHA-256**.
+4. **Lancer** — ouvre le dossier extrait, double-clic sur **`LANCER-LE-CHECK.bat`**, accepte la fenêtre bleue (**UAC → Oui**). Aucune question : le check complet tourne. Le verdict et le détail de ce qui a été trouvé s'affichent dans la fenêtre (environ 1 à 2 minutes).
 
 Guide joueur détaillé (FR) : `LANCER-LE-CHECK.txt`. Vérif visuelle du setup (DMA / 2e PC) : `CHECK-CONSOLE-SETUP.txt`.
 
@@ -30,7 +30,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$p=(Get-ChildItem $HOME 
 1. **Download** — green **Code** button → **Download ZIP**.
 2. **Unblock** — right-click the `.zip` → Properties → tick **Unblock** → OK, *before* extracting. The scripts are unsigned; this removes the Mark-of-the-Web so Windows shows no security warning.
 3. **Extract** — right-click the `.zip` → Extract All.
-4. **Run** — open the extracted folder, double-click **`LANCER-LE-CHECK.bat`**, accept the UAC prompt. No questions: the full check runs. A `.txt` + `.html` report lands on the Desktop with a SHA-256 fingerprint.
+4. **Run** — open the extracted folder, double-click **`LANCER-LE-CHECK.bat`**, accept the UAC prompt. No questions: the full check runs. The verdict and the detail of every finding are printed in the window (about 1 to 2 minutes).
 
 Player guide (French): `LANCER-LE-CHECK.txt`. Visual setup check (DMA / second PC): `CHECK-CONSOLE-SETUP.txt`.
 
@@ -86,7 +86,7 @@ download quarantine.
 - Dual-use tooling (G HUB, DS4Windows, ...) is listed, not auto-flagged — the moderator keeps the final call.
 - Word-boundary matching to kill substring false positives (`xim` is not `Maxim`, `zen` is not `Ryzen`).
 - Terminal: one line per probe with a `i/N` progress counter and OK/INFO/WARN/FLAG/NA colours, verdict + action boxed at the end.
-- Output: `.txt` + `.html` report and a SHA-256 hash shown on screen. The HTML puts the verdict, the action and the script fingerprint first, expands every FLAG/WARN with its "shows / does not prove" lines, and folds the OK/INFO/NA probes under a collapsible section. The hash makes the *saved report* tamper-evident (any later edit changes it); it is not proof of an honest run. Trust comes from the moderator supplying the script (or verifying its hash) and watching the live output — a player should not vet themselves with a script they brought.
+- Output: the verdict, the action and the detail of every WARN/FLAG are printed in the window. A `.txt` + `.html` trace is also written to `%TEMP%\DexCheck` (never the player's Desktop); the HTML puts the verdict, the action and the script fingerprint first, expands every FLAG/WARN with its "shows / does not prove" lines, and folds the OK/INFO/NA probes under a collapsible section. The hash makes the *saved report* tamper-evident (any later edit changes it); it is not proof of an honest run. Trust comes from the moderator supplying the script (or verifying its hash) and watching the live output — a player should not vet themselves with a script they brought.
 - Anti-replay: pass `-Nonce "<word>"` — a word the moderator dictates at check time. It is printed on screen and written into the report, so it is folded into the SHA-256. A report carrying the moderator's fresh nonce could not have been pre-generated on a clean machine before the check — it proves the run is live for *this* session, not just un-edited afterward.
 
 ## Usage
