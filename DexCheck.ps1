@@ -2603,12 +2603,16 @@ function Probe-Virtualization {
     New-ProbeResult -Id 'VM' -Name 'Virtualisation (VM / hyperviseur)' -Status $a.Status -Severity $a.Severity -Summary $a.Summary -Details $details
 }
 
+# Resume unique de « protection coupee » : Get-EvasionProfile s'en sert pour distinguer ce signal
+# FORT d'une simple exclusion en zone user (signal prep). Une seule source, pas deux chaines.
+$script:DefenderRealtimeOffSummary = 'Protection temps reel Defender DESACTIVEE (antivirus coupe avant le check ?)'
+
 function Get-DefenderAssessment {
     # Logique PURE testable. Une exclusion Defender au nom de cheat = whitelist d'un dossier
     # de cheat (tell classique). Protection coupee / exclusion en zone temp = a verifier.
     param([bool]$RealtimeDisabled, [bool]$CheatExclusion, [int]$RiskyExclusionCount, [int]$TotalExclusionCount)
     if ($CheatExclusion)        { return @{ Status='FLAG'; Severity=2; Summary='Exclusion Defender au nom de cheat (dossier/process whiteliste pour echapper a l antivirus)' } }
-    if ($RealtimeDisabled)      { return @{ Status='WARN'; Severity=1; Summary='Protection temps reel Defender DESACTIVEE (antivirus coupe avant le check ?)' } }
+    if ($RealtimeDisabled)      { return @{ Status='WARN'; Severity=1; Summary=$script:DefenderRealtimeOffSummary } }
     if ($RiskyExclusionCount -gt 0) { return @{ Status='WARN'; Severity=1; Summary="$RiskyExclusionCount exclusion(s) Defender en zone user/temp/downloads - a verifier" } }
     if ($TotalExclusionCount -gt 0) { return @{ Status='INFO'; Severity=0; Summary="$TotalExclusionCount exclusion(s) Defender (souvent legit : jeux/dev) - listees" } }
     return @{ Status='OK'; Severity=0; Summary='Aucune exclusion Defender, protection temps reel active' }
@@ -3025,7 +3029,13 @@ function Get-EvasionProfile {
     foreach ($r in $results) {
         switch ([string]$r.Id) {
             'IDENT'    { if ($r.Status -eq 'WARN') { $strong.Add('Horloge systeme possiblement reculee') } }
-            'DEFENDER' { if ($r.Status -eq 'WARN' -or $r.Status -eq 'FLAG') { $strong.Add('Windows Defender affaibli/contourne') } }
+            # FORT seulement si l'antivirus est COUPE ou une exclusion porte un nom de cheat (FLAG).
+            # Une exclusion en Downloads/Temp est un conseil courant pour un mod bloque par Defender :
+            # signal prep, sinon exclusion + USN off (debloat) donnait SUSPECT sans nom de cheat.
+            'DEFENDER' {
+                if ($r.Status -eq 'FLAG' -or ($r.Status -eq 'WARN' -and [string]$r.Summary -eq $script:DefenderRealtimeOffSummary)) { $strong.Add('Windows Defender coupe ou exclusion au nom de cheat') }
+                elseif ($r.Status -eq 'WARN') { $weak.Add('Exclusion Defender en zone user/temp (dual-use)') }
+            }
             'ANTIFOR'  { if ($r.Status -eq 'FLAG') { $strong.Add('Outil d effacement securise (wipe)') } elseif ($r.Status -eq 'WARN') { $weak.Add('Nettoyeur installe (dual-use)') } }
             'EVTLOG'   { if ($r.Status -eq 'FLAG') { $strong.Add('Journaux d evenements effaces') } elseif ($r.Status -eq 'WARN') { $weak.Add('Journal d evenements court/tronque') } }
             'USN'      { if ($r.Status -eq 'WARN') { $weak.Add('Journal USN desactive (historique des suppressions)') } }

@@ -306,7 +306,7 @@ Test-Case "Get-Verdict : 1 SEUL FLAG anti-wipe, sans nettoyage => SUSPECT (pas d
 Test-Case "Get-Verdict : 1 FLAG anti-wipe + nettoyage COORDONNE (Defender coupe + USN off) => ROUGE (a tourne puis efface ses traces)" {
     $rs = @(
         (New-ProbeResult -Id 'EXEC'     -Name e -Status 'FLAG' -Severity 2),
-        (New-ProbeResult -Id 'DEFENDER' -Name d -Status 'WARN' -Severity 1),
+        (New-ProbeResult -Id 'DEFENDER' -Name d -Status 'WARN' -Severity 1 -Summary $script:DefenderRealtimeOffSummary),
         (New-ProbeResult -Id 'USN'      -Name u -Status 'WARN' -Severity 1)
     )
     (Get-Verdict $rs) -eq 'ROUGE'
@@ -482,8 +482,28 @@ Test-Case "Get-EvasionProfile : horloge reculee + USN off => ESCALADE (signal fo
     (Get-EvasionProfile $rs).Escalate
 }
 Test-Case "Get-EvasionProfile : Defender coupe SEUL => PAS d'escalade (besoin de corroboration)" {
-    $rs = @((New-ProbeResult -Id DEFENDER -Name d -Status WARN -Severity 1))
+    $rs = @((New-ProbeResult -Id DEFENDER -Name d -Status WARN -Severity 1 -Summary $script:DefenderRealtimeOffSummary))
     -not (Get-EvasionProfile $rs).Escalate
+}
+# Revue 17/09 : une simple EXCLUSION Defender en zone Downloads/Temp (conseil courant pour un mod
+# que l'antivirus bloque) etait classee « forte » comme l'antivirus coupe. + USN off (debloat
+# gaming) => SUSPECT sans aucun nom de cheat. Une exclusion est un signal « prep », pas fort.
+Test-Case "Get-EvasionProfile : exclusion Defender en zone Downloads + USN off => PAS d'escalade" {
+    $excl = Get-DefenderAssessment -RealtimeDisabled $false -CheatExclusion $false -RiskyExclusionCount 1 -TotalExclusionCount 1
+    $rs = @(
+        (New-ProbeResult -Id DEFENDER -Name d -Status $excl.Status -Severity $excl.Severity -Summary $excl.Summary),
+        (New-ProbeResult -Id USN -Name u -Status WARN -Severity 1)
+    )
+    $prof = Get-EvasionProfile $rs
+    ($prof.Strong.Count -eq 0) -and (-not $prof.Escalate) -and ((Get-Verdict $rs) -eq 'A VERIFIER')
+}
+Test-Case "Get-EvasionProfile : protection temps reel COUPEE + USN off => ESCALADE (reste un signal fort)" {
+    $off = Get-DefenderAssessment -RealtimeDisabled $true -CheatExclusion $false -RiskyExclusionCount 0 -TotalExclusionCount 0
+    $rs = @(
+        (New-ProbeResult -Id DEFENDER -Name d -Status $off.Status -Severity $off.Severity -Summary $off.Summary),
+        (New-ProbeResult -Id USN -Name u -Status WARN -Severity 1)
+    )
+    (Get-EvasionProfile $rs).Escalate
 }
 Test-Case "Get-EvasionProfile : ccleaner (ANTIFOR WARN) + USN off => PAS d'escalade (2 signaux prep)" {
     $rs = @(
@@ -522,7 +542,7 @@ Test-Case "Get-Verdict : PC gaming debloate (3 WARN prep) reste A VERIFIER (pas 
 Test-Case "Get-EvasionProfile : 2 signaux FORTS (horloge + Defender), aucun prep => ESCALADE (nettoyage coordonne)" {
     $rs = @(
         (New-ProbeResult -Id IDENT -Name i -Status WARN -Severity 1),
-        (New-ProbeResult -Id DEFENDER -Name d -Status WARN -Severity 1)
+        (New-ProbeResult -Id DEFENDER -Name d -Status WARN -Severity 1 -Summary $script:DefenderRealtimeOffSummary)
     )
     $prof = Get-EvasionProfile $rs
     ($prof.Strong.Count -eq 2) -and $prof.Escalate
@@ -808,13 +828,14 @@ Test-Case "USN vrai-positif : un fichier au nom de cheat SUPPRIME est capture en
     # posterieures presentes, pas la notre).
     $caught = @()
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    for ($i = 0; $i -lt 60 -and $caught.Count -lt 1; $i++) {
+    # Borne en TEMPS reel : chaque essai relit tout le journal, 60 essais pouvaient durer des minutes.
+    while ($sw.Elapsed.TotalSeconds -lt 15 -and $caught.Count -lt 1) {
         Start-Sleep -Milliseconds 250
         $scan = Get-UsnScan -Volume $vol -FlagPatterns @($token) -WarnPatterns @()
         $caught = @($scan.FlagSuspects | Where-Object { [string]$_.Name -match $token })
     }
     if ($caught.Count -ge 1 -and $sw.Elapsed.TotalSeconds -gt 3) {
-        Write-Host ("      (trace USN apparue apres {0:N1} s : ecriture differee de la suppression)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor DarkYellow
+        Write-Host ("      (trace USN apparue apres {0:N1} s)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor DarkYellow
     }
     if ($caught.Count -lt 1) {
         $newest = if ($scan.NewestTicks -gt 0) { [DateTime]::FromFileTime($scan.NewestTicks).ToString('HH:mm:ss.fff') } else { '-' }
