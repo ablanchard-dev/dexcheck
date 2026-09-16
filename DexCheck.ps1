@@ -299,6 +299,7 @@ public static class DexCheckUsnReader {
         public long OldestTicks = 0;
         public long NewestTicks = 0;
         public int StopError = 0;  // 0 = journal lu jusqu'au bout ; sinon code Win32 (-1 = garde de boucle)
+        public long LastRecordTicks = 0;  // horodatage du dernier enregistrement LU, tous types (pas seulement suppressions)
     }
     static bool IsWordCh(char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'); }
     static bool WordMatch(string hay, string pat) {
@@ -368,6 +369,7 @@ public static class DexCheckUsnReader {
                     int recLen = Marshal.ReadInt32(outBuf, off);
                     if (recLen <= 0) { off = got; break; }
                     long ts = Marshal.ReadInt64(outBuf, off + 32);
+                    if (ts > res.LastRecordTicks) res.LastRecordTicks = ts;
                     uint reason = (uint)Marshal.ReadInt32(outBuf, off + 40);
                     uint attrs = (uint)Marshal.ReadInt32(outBuf, off + 52);
                     int nameLen = Marshal.ReadInt16(outBuf, off + 56) & 0xFFFF;

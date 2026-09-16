@@ -838,9 +838,25 @@ Test-Case "USN vrai-positif : un fichier au nom de cheat SUPPRIME est capture en
         Write-Host ("      (trace USN apparue apres {0:N1} s)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor DarkYellow
     }
     if ($caught.Count -lt 1) {
-        $newest = if ($scan.NewestTicks -gt 0) { [DateTime]::FromFileTime($scan.NewestTicks).ToString('HH:mm:ss.fff') } else { '-' }
+        # LastRecordTicks = dernier enregistrement LU tous types (NewestTicks ne compte que les suppressions :
+        # sur un disque calme il est toujours anterieur a l'appat et accusait le lecteur a tort).
+        $newest = if ($scan.LastRecordTicks -gt 0) { [DateTime]::FromFileTime($scan.LastRecordTicks).ToString('HH:mm:ss.fff') } else { '-' }
         Write-Host ("      -> la suppression plantee n'a PAS ete retrouvee dans le journal USN (StopError={0}, total={1}, appat={2}, derniere entree lue={3}, fichier encore present={4})" -f `
             $scan.StopError, $scan.Total, $planted.ToString('HH:mm:ss.fff'), $newest, (Test-Path -LiteralPath $bait)) -ForegroundColor DarkYellow
+        # Mesure 17/09 : derniere entree lue 15 s APRES l'appat => le lecteur va bien au bout. Reste :
+        # suppression journalisee tres tard, ou jamais ? On continue a chercher 90 s pour trancher.
+        $late = [Diagnostics.Stopwatch]::StartNew()
+        while ($late.Elapsed.TotalSeconds -lt 90 -and $caught.Count -lt 1) {
+            Start-Sleep -Seconds 5
+            $s2 = Get-UsnScan -Volume $vol -FlagPatterns @($token) -WarnPatterns @()
+            $caught = @($s2.FlagSuspects | Where-Object { [string]$_.Name -match $token })
+        }
+        if ($caught.Count -ge 1) {
+            Write-Host ("      -> trace apparue TARDIVEMENT, {0:N0} s apres l'appat (horodatage de l'entree : {1:HH:mm:ss.fff})" -f ((Get-Date) - $planted).TotalSeconds, $caught[0].Time) -ForegroundColor DarkYellow
+            $caught = @()   # le test reste en echec : le delai est l'information, pas une reussite
+        } else {
+            Write-Host "      -> toujours ABSENTE apres 105 s : la suppression n'a jamais ete journalisee sous ce nom" -ForegroundColor DarkYellow
+        }
     }
     ($caught.Count -ge 1)
 }
