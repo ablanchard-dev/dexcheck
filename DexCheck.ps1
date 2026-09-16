@@ -1258,7 +1258,13 @@ function Test-ProcessIsCheat {
     # frontiere de mot (Test-AnyWord) : un cheat lance avec un exe renomme mais des args distinctifs
     # ('svchost.exe --config engineowning') est quand meme attrape. On ne lisait que le nom avant.
     param([string]$Name, [string]$Path, [string]$CommandLine, [string[]]$CheatPatterns)
-    if ((Test-AnyPattern $Name $CheatPatterns) -or (Test-AnyPattern $Path $CheatPatterns)) { return $true }
+    # Nom/chemin : une marque LONGUE (>= 8) matche en sous-chaine pour attraper 'EngineOwningLoader.exe' ;
+    # un motif COURT exige une frontiere de mot, sinon 'ring-1' accusait 'C:\dev\spring-1.5\java.exe'.
+    $long  = @($CheatPatterns | Where-Object { $_ -and $_.Length -ge 8 })
+    $short = @($CheatPatterns | Where-Object { $_ -and $_.Length -lt 8 })
+    foreach ($s in @($Name, $Path)) {
+        if ((Test-AnyPattern $s $long) -or (Test-AnyWord $s $short)) { return $true }
+    }
     if (Test-AnyWord $CommandLine $CheatPatterns) { return $true }
     return $false
 }

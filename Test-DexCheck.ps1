@@ -1108,6 +1108,18 @@ Test-Case "Process cmdline : nom OU chemin de cheat distinctif detecte comme ava
     $fp = @(); foreach($c in $script:CheatSoftware){ if(-not $c.GenericName){ $fp += $c.Patterns } }
     (Test-ProcessIsCheat 'engineowning.exe' '' '' $fp)
 }
+# Revue 17/09 : nom/chemin compares en SOUS-CHAINE. Le motif le plus court, 'ring-1', est contenu
+# dans 'spring-1' (dossier Java/Spring) => un process legitime sortait FLAG « cheat en cours ».
+# Mais une frontiere de mot partout raterait 'EngineOwningLoader.exe' (marque collee).
+Test-Case "Process : motif COURT exige une frontiere de mot ('ring-1' ne matche pas 'spring-1.5')" {
+    $fp = @(); foreach($c in $script:CheatSoftware){ if(-not $c.GenericName){ $fp += $c.Patterns } }
+    (-not (Test-ProcessIsCheat 'java.exe' 'C:\dev\spring-1.5\bin\java.exe' '' $fp)) -and
+    (Test-ProcessIsCheat 'ring-1.exe' 'C:\x\ring-1.exe' '' $fp)
+}
+Test-Case "Process : marque LONGUE collee a un autre mot reste detectee ('EngineOwningLoader.exe')" {
+    $fp = @(); foreach($c in $script:CheatSoftware){ if(-not $c.GenericName){ $fp += $c.Patterns } }
+    (Test-ProcessIsCheat 'EngineOwningLoader.exe' 'C:\Users\x\Downloads\EngineOwningLoader.exe' '' $fp)
+}
 
 Test-Case "Defender historique VRAI-POSITIF : une detection au nom de cheat DISTINCTIF (engineowning) => FLAG (verdict signe Microsoft)" {
     $fp = Get-CheatFlagPatterns
