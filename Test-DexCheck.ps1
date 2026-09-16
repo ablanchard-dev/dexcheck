@@ -1598,6 +1598,26 @@ Test-Case "Terminal : progression par sonde (compteur i/N) presente dans le code
     ($src -match 'Write-ProbeLine \$r -Index \$idx -Total \$probes\.Count')
 }
 
+Section "I. REVUE 17/09 : dossiers utilisateur rediriges par OneDrive"
+# Mesure sur le PC d'Alex : Bureau reel = OneDrive\Bureau (33 fichiers) alors que les sondes lisaient
+# %USERPROFILE%\Desktop (8 fichiers), idem Documents (48 vs 4). Un cheat pose sur le vrai Bureau
+# etait invisible pour KnownCheats, GpcScripts et DownloadProvenance, qui disaient « rien trouve ».
+Test-Case "Get-UserFolderRoots : inclut les dossiers REDIRIGES (OneDrive) en plus des chemins historiques, sans doublon" {
+    $r = @(Get-UserFolderRoots -ProfileDir 'C:\U' -Desktop 'C:\U\OneDrive\Bureau' -Documents 'C:\U\OneDrive\Documents' -Downloads 'C:\U\Downloads')
+    ($r -contains 'C:\U\OneDrive\Bureau') -and ($r -contains 'C:\U\OneDrive\Documents') -and
+    ($r -contains 'C:\U\Desktop') -and ($r -contains 'C:\U\Documents') -and
+    (@($r | Where-Object { $_ -eq 'C:\U\Downloads' }).Count -eq 1)
+}
+Test-Case "Get-UserFolderRoots : sans redirection, pas de doublon ni de chemin vide" {
+    $r = @(Get-UserFolderRoots -ProfileDir 'C:\U' -Desktop 'C:\U\Desktop' -Documents '' -Downloads $null)
+    ($r.Count -eq 3) -and (@($r | Where-Object { -not $_ }).Count -eq 0)
+}
+Test-Case "Les 3 sondes de fichiers utilisateur passent par Get-UserFolderRoots (plus de chemin %USERPROFILE%\\Desktop code en dur)" {
+    $src = [IO.File]::ReadAllText($ScriptPath)
+    ($src -notmatch 'USERPROFILE\\(Desktop|Documents|Downloads)"') -and
+    ([regex]::Matches($src, 'Get-UserFolderRoots').Count -ge 4)
+}
+
 Section "H. RETOUR TERRAIN 16/09 (Alex) : PC propre = propre, resultat dans la fenetre, rien sur le Bureau"
 # PC d'Alex, jamais rien de louche : A VERIFIER a cause de 'irm https://claude.ai/install.ps1 | iex'.
 # Installer un logiciel par irm|iex est banal : liste en INFO (visible), jamais un WARN sur verdict.

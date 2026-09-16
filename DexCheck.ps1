@@ -2169,6 +2169,30 @@ function Probe-Network {
     New-ProbeResult -Id 'NET' -Name 'Connexions reseau live' -Status 'INFO' -Severity 0 -Summary "$($conns.Count) connexion(s) sortante(s), 0 process cheat connu" -Details $details
 }
 
+function Get-UserFolderRoots {
+    # Bureau / Documents / Telechargements de l'utilisateur : chemins historiques ET emplacements
+    # REELS. Avec OneDrive (sauvegarde des dossiers), le vrai Bureau est OneDrive\Bureau et
+    # %USERPROFILE%\Desktop reste un dossier residuel : mesure 17/09, 8 fichiers lus contre 33 reels.
+    # Parametres injectables pour les tests ; par defaut, on interroge Windows.
+    param(
+        [string]$ProfileDir = $env:USERPROFILE,
+        [string]$Desktop    = [Environment]::GetFolderPath('Desktop'),
+        [string]$Documents  = [Environment]::GetFolderPath('MyDocuments'),
+        [string]$Downloads  = $(try { [Environment]::ExpandEnvironmentVariables([string](Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders' -ErrorAction Stop).'{374DE290-123F-4565-9164-39C4925E467B}') } catch { '' })
+    )
+    $out = New-Object System.Collections.Generic.List[string]
+    $cands = @()
+    if ($ProfileDir) { $cands += (Join-Path $ProfileDir 'Downloads'), (Join-Path $ProfileDir 'Desktop'), (Join-Path $ProfileDir 'Documents') }
+    $cands += $Downloads, $Desktop, $Documents
+    foreach ($c in $cands) {
+        if ([string]::IsNullOrWhiteSpace($c)) { continue }
+        $n = $c.TrimEnd('\')
+        if (-not ($out | Where-Object { $_ -ieq $n })) { $out.Add($n) }
+    }
+    # Tableau deroule (pas ,$out) : les appelants font @(Get-UserFolderRoots) et iterent les chemins.
+    return $out.ToArray()
+}
+
 function Probe-KnownCheats {
     $details = New-Object System.Collections.Generic.List[string]
     $hits = New-Object System.Collections.Generic.List[string]
@@ -2176,7 +2200,7 @@ function Probe-KnownCheats {
     $procNames = @()
     try { $procNames = (Get-Process -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) } catch { }
     # dossiers/installeurs sur quelques racines, profondeur bornee
-    $roots = @($env:USERPROFILE, "$env:USERPROFILE\Downloads", "$env:USERPROFILE\Documents", $env:LOCALAPPDATA, $env:ProgramData) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+    $roots = @(@($env:USERPROFILE) + @(Get-UserFolderRoots) + @($env:LOCALAPPDATA, $env:ProgramData)) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
     $folderNames = New-Object System.Collections.Generic.List[string]
     foreach($r in $roots){
         try { Get-ChildItem $r -Directory -ErrorAction SilentlyContinue | Select-Object -First 400 | ForEach-Object { $folderNames.Add($_.Name) } } catch { }
@@ -2312,7 +2336,7 @@ function Probe-GpcScripts {
     $confirmed = New-Object System.Collections.Generic.List[string]
     $extOnly = New-Object System.Collections.Generic.List[string]
     # Zones utilisateur usuelles seulement (pas tout le disque : couteux + le .gpc arrive par download).
-    $roots = @("$env:USERPROFILE\Downloads","$env:USERPROFILE\Desktop","$env:USERPROFILE\Documents","$env:TEMP") | Select-Object -Unique
+    $roots = @(@(Get-UserFolderRoots) + @($env:TEMP)) | Select-Object -Unique
     foreach ($r in $roots) {
         if (-not (Test-Path $r)) { continue }
         try {
@@ -2524,7 +2548,7 @@ function Probe-DownloadProvenance {
     $details = New-Object System.Collections.Generic.List[string]
     $domains = @(); foreach ($c in $script:CheatSoftware) { if ($c.Domains) { $domains += $c.Domains } }
     $entries = New-Object System.Collections.Generic.List[object]
-    $roots = @("$env:USERPROFILE\Downloads","$env:USERPROFILE\Desktop","$env:USERPROFILE\Documents","$env:TEMP") | Where-Object { $_ } | Select-Object -Unique
+    $roots = @(@(Get-UserFolderRoots) + @($env:TEMP)) | Where-Object { $_ } | Select-Object -Unique
     $exts = @('.exe','.dll','.scr','.zip','.rar','.7z','.ps1','.bat','.msi')
     # Cap PAR RACINE (pas global) pour qu'aucune zone ne soit affamee par une autre + on lit les
     # ADS des fichiers les PLUS RECENTS d'abord (un cheat telecharge pour la session est recent).
