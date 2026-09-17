@@ -11,7 +11,7 @@ runs it while a moderator watches the output scroll by.
 
 ## Lancer (Windows)
 
-1. Télécharger : bouton vert **Code** → **Download ZIP**.
+1. Télécharger la [dernière version](https://github.com/ablanchard-dev/dexcheck/releases/latest) : **Source code (zip)**.
 2. Clic droit sur le `.zip` → **Extraire tout**.
 3. Dans le dossier extrait, double-clic sur **`LANCER-LE-CHECK.bat`**, puis **Oui** sur la fenêtre bleue.
 
