@@ -1743,6 +1743,27 @@ Test-Case "Persistance : une TACHE dans Temp n'est pas suspecte a elle seule (in
     $e = @([pscustomobject]@{ Source='Tache'; Name='SetupCleanup'; Command='C:\Users\bob\AppData\Local\Temp\setup\cleanup.exe' })
     (Get-PersistenceHits -Entries $e -Patterns (Get-PersistencePatterns)).Count -eq 0
 }
+# Deux sources de demarrage que DexCheck ne lisait pas du tout (mesure 17/09 sur le PC d'Alex : 319 services,
+# 0 binaire sous \Users\ ; 0 consommateur WMI qui lance une commande) : un service Windows ordinaire dont le
+# binaire vit dans le profil utilisateur, et un abonnement WMI permanent (technique de persistance furtive).
+Test-Case "Persistance VRAI-POSITIF : service Windows dont le binaire est dans le profil utilisateur, ou consommateur WMI qui lance une commande depuis le profil => suspect" {
+    $p = Get-PersistencePatterns
+    $svc = @([pscustomobject]@{ Source='Service'; Name='AudioSrvHelper'; Command='"C:\Users\bob\AppData\Roaming\audio\svchelper.exe" -k' })
+    $wmi = @([pscustomobject]@{ Source='WMI'; Name='Updater'; Command='powershell.exe -w hidden -File C:\Users\bob\AppData\Local\u\run.ps1' })
+    ((Get-PersistenceHits -Entries $svc -Patterns $p).Count -eq 1) -and ((Get-PersistenceHits -Entries $wmi -Patterns $p).Count -eq 1)
+}
+Test-Case "Persistance GARDE-FOU : une cle Run vers le profil utilisateur (Discord, Spotify : tres courant) n'est PAS suspecte ; un service sous Program Files non plus" {
+    $p = Get-PersistencePatterns
+    $clean = @(
+        [pscustomobject]@{ Source='Run'; Name='Discord'; Command='"C:\Users\bob\AppData\Local\Discord\Update.exe" --processStart Discord.exe' },
+        [pscustomobject]@{ Source='Service'; Name='AnyDesk'; Command='"C:\Program Files (x86)\AnyDesk\AnyDesk.exe" --service' }
+    )
+    (Get-PersistenceHits -Entries $clean -Patterns $p).Count -eq 0
+}
+Test-Case "Probe-Persistence lit aussi les services Windows et les abonnements WMI permanents" {
+    $src = ${function:Probe-Persistence}.ToString()
+    ($src -match 'Win32_Service') -and ($src -match 'root\\subscription') -and ($src -match 'CommandLineEventConsumer') -and ($src -match 'ActiveScriptEventConsumer')
+}
 Test-Case "Probe-Persistence lit les trois sources qui manquaient : arguments de tache, dossiers Demarrage, Run 32 bits" {
     $src = ${function:Probe-Persistence}.ToString()
     # la ligne de tache doit CONTENIR les arguments (lire .Arguments sans les mettre dans Command survivait a la mutation)

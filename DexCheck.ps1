@@ -1359,6 +1359,9 @@ function Get-PersistenceHits {
         $nm = [string]$e.Name; $cmd = [string]$e.Command; $src = [string]$e.Source
         if ((Test-CheatNameMatch $cmd $Patterns) -or (Test-CheatNameMatch $nm $Patterns)) { $hits.Add("${src}: $nm = $cmd") }
         elseif ($src -ne 'Tache' -and (Test-AnyPattern $cmd @('\temp\','\downloads\'))) { $hits.Add("$src en zone temp: $nm = $cmd") }
+        # Service Windows ou abonnement WMI qui s'execute depuis le PROFIL utilisateur : rarement legitime
+        # (un service s'installe sous Program Files). Pas pour Run : Discord/Spotify y pointent tous vers AppData.
+        elseif ($src -in @('Service','WMI') -and (Test-UserZoneDriverPath $cmd)) { $hits.Add("$src depuis le profil utilisateur: $nm = $cmd") }
     }
     return ,$hits
 }
@@ -1418,8 +1421,31 @@ function Probe-Persistence {
             $entries.Add([pscustomobject]@{ Source='Demarrage'; Name=$f.Name; Command=$cmd })
         }
     }
+    # Services Windows ordinaires (les drivers sont dans KDRV) : ligne de commande complete.
+    $serviceCount = 0
+    try {
+        foreach ($s in @(Get-CimInstance Win32_Service -ErrorAction Stop)) {
+            $serviceCount++
+            $entries.Add([pscustomobject]@{ Source='Service'; Name=$s.Name; Command=[string]$s.PathName })
+        }
+    } catch { $details.Add("NOTE : services Windows non lisibles ($($_.Exception.Message.Split([char]10)[0])).") }
+    # Abonnements WMI permanents (un filtre d'evenement qui relance une commande ou un script) : persistance
+    # furtive, invisible dans Run, les taches et le dossier Demarrage.
+    $wmiCount = 0
+    try {
+        foreach ($c in @(Get-CimInstance -Namespace 'root\subscription' -ClassName CommandLineEventConsumer -ErrorAction Stop)) {
+            $wmiCount++
+            $cmd = [string]$c.CommandLineTemplate; if (-not $cmd) { $cmd = [string]$c.ExecutablePath }
+            $entries.Add([pscustomobject]@{ Source='WMI'; Name=$c.Name; Command=$cmd })
+        }
+        foreach ($c in @(Get-CimInstance -Namespace 'root\subscription' -ClassName ActiveScriptEventConsumer -ErrorAction Stop)) {
+            $wmiCount++
+            $cmd = [string]$c.ScriptFileName; if (-not $cmd) { $cmd = [string]$c.ScriptText }
+            $entries.Add([pscustomobject]@{ Source='WMI'; Name=$c.Name; Command=$cmd })
+        }
+    } catch { $details.Add("NOTE : abonnements WMI (root\subscription) non lisibles ($($_.Exception.Message.Split([char]10)[0])).") }
     $suspect = Get-PersistenceHits -Entries $entries -Patterns $pat
-    $details.Add("Inspecte : cles Run/RunOnce (64 et 32 bits, machine et utilisateur), $taskCount tache(s) planifiee(s) avec leurs arguments, $startupCount element(s) des dossiers Demarrage (cible des raccourcis).")
+    $details.Add("Inspecte : cles Run/RunOnce (64 et 32 bits, machine et utilisateur), $taskCount tache(s) planifiee(s) avec leurs arguments, $startupCount element(s) des dossiers Demarrage (cible des raccourcis), $serviceCount service(s) Windows, $wmiCount abonnement(s) WMI qui lancent une commande ou un script.")
     if ($suspect.Count -gt 0) {
         foreach($s in $suspect){ $details.Add("  $s") }
         New-ProbeResult -Id 'PERSIST' -Name 'Persistence' -Status 'WARN' -Severity 1 -Summary "$($suspect.Count) point(s) de persistence a verifier" -Details $details
