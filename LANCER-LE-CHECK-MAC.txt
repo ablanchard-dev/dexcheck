@@ -13,8 +13,8 @@ LANCER LE CHECK (mode normal)
 
 3. Le check se deroule a l'ecran. A la fin :
    - un VERDICT (CLEAN / A VERIFIER / SUSPECT / ROUGE),
-   - un rapport ecrit sur ton Bureau (DexCheck-Mac_<nom>_<date>.txt et .html),
-   - un code SHA256 affiche : empreinte du rapport, note-la / screen.
+   - le detail de ce qui a ete trouve, directement dans la fenetre.
+   Rien n'est ecrit sur ton Bureau.
 
 VERSION APPROFONDIE (si un responsable le demande)
 --------------------------------------------------

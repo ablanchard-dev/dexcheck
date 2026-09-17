@@ -7,7 +7,7 @@
 # dans le PC de jeu) ou d'aimbot par VISION (capture HDMI -> CV -> injection).
 #
 # A faire en partage d'ecran avec un responsable. Le check LIT seulement, il ne
-# modifie rien, et ecrit un rapport + un SHA256 (empreinte infalsifiable).
+# modifie rien, et affiche le verdict et ce qui a ete trouve (trace technique dans $TMPDIR/DexCheck).
 #
 #   bash DexCheck-Mac.command               # mode leger (zero permission)
 #   sudo bash DexCheck-Mac.command --deep   # approfondi (Full Disk Access + sudo)
@@ -17,7 +17,7 @@
 # Compatible bash 3.2 (macOS) : pas de tableaux associatifs.
 # =============================================================================
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 DEEP=0; NOCOLOR=0; SELFTEST=0; OUTDIR=""
 
 for arg in "$@"; do
@@ -51,7 +51,12 @@ fi
 SIG_CAPTURE="elgato|avermedia|magewell|blackmagic|cam link|live gamer|game capture|ezcap"
 SIG_DMA="pcileech|leetdma|captaindma|screamer|enigma x1|raptordma|ft601|ft60x|ft600"
 SIG_REMOTE="anydesk|teamviewer|parsec|moonlight|sunshine|rustdesk|splashtop|nomachine|jump desktop|chrome remote desktop|deskreen|realvnc|apple remote desktop"
-SIG_CHEAT="aimbot|wallhack|triggerbot|colorbot|dma radar|unknowncheats|engineowning|phantomoverlay|radarflow|dmaradar"
+# FLAG = noms de cheat DISTINCTIFS. Les mots de CATEGORIE sont a part (WARN) : « Aimbot Detector »
+# ou un guide ne doivent pas faire SUSPECT (meme regle que DexCheck Windows, 17/09).
+SIG_CHEAT="dma radar|unknowncheats|engineowning|phantomoverlay|radarflow|dmaradar"
+SIG_CHEAT_GENERIC="aimbot|wallhack|triggerbot|colorbot"
+# Apps courantes avec permission d'enregistrement d'ecran (visio, stream, navigateurs) : INFO.
+SIG_SCREENCAP_OK="discord|obs|zoom|teams|slack|skype|webex|loom|streamlabs|twitch|chrome|firefox|brave|edge|arc|quicktime|screenflow|cleanshot|facetime"
 SIG_CHEATDOM="engineowning|phantomoverlay|lavicheats|unknowncheats|fecurity|interwebz|memesense|skript.gg|coldvision|hypervision|hypercheats|ring-1|susano.gg|abstrakt.cc|klarcheats|cobracheats|disconnect.gg"
 
 # matches_any HAYSTACK PIPE_PATTERNS -> 0 si une pattern est sous-chaine (insensible casse).
@@ -69,6 +74,17 @@ matches_any() {
   done
   IFS="$oldifs"
   return 1
+}
+
+# screencap_unknown : lit des identifiants d'apps (stdin), ecrit ceux qui ne sont PAS des apps
+# courantes. Discord/OBS/Zoom ont cette permission sur quasi tous les Mac de joueurs : seul un
+# client inconnu merite un WARN (signal aimbot par vision).
+screencap_unknown() {
+  local l
+  while IFS= read -r l; do
+    [ -z "$l" ] && continue
+    matches_any "$l" "$SIG_SCREENCAP_OK" || printf '%s\n' "$l"
+  done
 }
 
 # sev_to_verdict MAXSEV -> chaine de verdict (meme echelle que le Windows)
@@ -107,7 +123,7 @@ run_self_test() {
   T="remote: Jump Desktop detecte"           ; _true  matches_any "Jump Desktop.app"           "$SIG_REMOTE"
   T="remote: Chrome Remote Desktop detecte"  ; _true  matches_any "Chrome Remote Desktop Host"  "$SIG_REMOTE"
   T="remote: Messages = PAS FP"              ; _false matches_any "Messages.app"                "$SIG_REMOTE"
-  T="cheat: aimbot detecte"                  ; _true  matches_any "cod-aimbot-loader"           "$SIG_CHEAT"
+  T="cheat: aimbot detecte (WARN)"           ; _true  matches_any "cod-aimbot-loader"           "$SIG_CHEAT_GENERIC"
   T="cheat: dma radar detecte"               ; _true  matches_any "warzone dma radar"           "$SIG_CHEAT"
   T="cheat: radarflow detecte"               ; _true  matches_any "RadarFlow"                   "$SIG_CHEAT"
   T="cheat: app legitime = PAS FP"           ; _false matches_any "Discord"                     "$SIG_CHEAT"
@@ -115,6 +131,16 @@ run_self_test() {
   T="cheatdom: hypervision detecte"          ; _true  matches_any "hypervision.io"              "$SIG_CHEATDOM"
   T="cheatdom: apple.com = PAS FP"           ; _false matches_any "https://apple.com"           "$SIG_CHEATDOM"
   T="match: chaine vide = pas de match"      ; _false matches_any "Finder"                      ""
+  # 17/09 : mots de CATEGORIE (aimbot, wallhack...) = WARN, jamais FLAG (meme regle que Windows) :
+  # « Aimbot Detector » ou un guide ne doivent pas faire SUSPECT.
+  T="cheat FLAG: mot de categorie seul = PAS FLAG" ; _false matches_any "Aimbot Detector.app"  "$SIG_CHEAT"
+  T="cheat WARN: mot de categorie = WARN"          ; _true  matches_any "Aimbot Detector.app"  "$SIG_CHEAT_GENERIC"
+  T="cheat FLAG: nom distinctif reste FLAG"        ; _true  matches_any "EngineOwning Loader"  "$SIG_CHEAT"
+  # 17/09 : enregistrement d'ecran = Discord/OBS/Zoom sur quasi tous les Mac de joueurs.
+  _eq "screencap: apps courantes seules => rien d'inconnu" \
+      "$(printf 'com.hnc.Discord\ncom.obsproject.obs-studio\nus.zoom.xos\n' | screencap_unknown)" ""
+  _eq "screencap: app inconnue remontee" \
+      "$(printf 'com.hnc.Discord\ncom.unknown.radarview\n' | screencap_unknown)" "com.unknown.radarview"
 
   echo ""
   echo "BILAN self-test : ${fails} FAIL"
@@ -228,9 +254,13 @@ fi
 
 # --- 6. Apps / process radar-ESP-aimbot -------------------------------------
 CHE=$(printf '%s\n' "$HAYSTACK" | grep -iE "$SIG_CHEAT" | sed 's#.*/##' | sort -u)
+CHG=$(printf '%s\n' "$HAYSTACK" | grep -iE "$SIG_CHEAT_GENERIC" | grep -viE "$SIG_CHEAT" | sed 's#.*/##' | sort -u)
 if [ -n "$CHE" ]; then
   probe FLAG 2 "Cheats / radar / ESP" "Nom(s) de cheat connu(s) detecte(s)"
   printf '%s\n' "$CHE" | while IFS= read -r l; do [ -n "$l" ] && detail "Cheat : $l"; done
+elif [ -n "$CHG" ]; then
+  probe WARN 1 "Cheats / radar / ESP" "Nom generique (aimbot/wallhack...) -- a verifier, pas une preuve"
+  printf '%s\n' "$CHG" | while IFS= read -r l; do [ -n "$l" ] && detail "Nom generique : $l"; done
 else
   probe OK 0 "Cheats / radar / ESP" "Aucun nom de cheat/radar connu (apps + process)"
 fi
@@ -238,7 +268,7 @@ fi
 # --- 7. Persistance (LaunchAgents / Daemons / login items) ------------------
 PERSIST=$( { ls "$HOME/Library/LaunchAgents" /Library/LaunchAgents /Library/LaunchDaemons 2>/dev/null; \
              osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null | tr ',' '\n'; } )
-PSUS=$(printf '%s\n' "$PERSIST" | grep -iE "$SIG_CHEAT|$SIG_REMOTE" | sed 's/^ *//' | sort -u)
+PSUS=$(printf '%s\n' "$PERSIST" | grep -iE "$SIG_CHEAT|$SIG_CHEAT_GENERIC|$SIG_REMOTE" | sed 's/^ *//' | sort -u)
 PCNT=$(printf '%s\n' "$PERSIST" | grep -c .)
 if [ -n "$PSUS" ]; then
   probe WARN 1 "Persistance" "Element(s) de demarrage suspect(s) -- a verifier"
@@ -268,7 +298,13 @@ else
 fi
 
 # --- 10. Corbeille ----------------------------------------------------------
-probe OK 0 "Corbeille" "$(ls -A "$HOME/.Trash" 2>/dev/null | grep -c .) element(s)"
+# Sans Full Disk Access, macOS refuse la lecture de ~/.Trash : « 0 element » aurait l'air d'une
+# corbeille vide alors qu'on n'a rien pu regarder.
+if TRASH_LS=$(ls -A "$HOME/.Trash" 2>/dev/null); then
+  probe OK 0 "Corbeille" "$(printf '%s\n' "$TRASH_LS" | grep -c .) element(s)"
+else
+  probe NA 0 "Corbeille" "Illisible (Full Disk Access requis) -- non verifiee"
+fi
 
 # =============================================================================
 # SONDES -DEEP (Full Disk Access + sudo)
@@ -283,8 +319,12 @@ if [ "$DEEP" = "1" ]; then
 $(sqlite3 "$db" "select client from access where service='kTCCServiceScreenCapture' and auth_value>0" 2>/dev/null)"
     done
     SCN=$(printf '%s\n' "$SC" | grep -viE 'com\.apple|^$' | sort -u)
-    if [ -n "$SCN" ]; then
-      probe WARN 1 "[-deep] Enregistrement d'ecran" "App(s) non-Apple peuvent capturer l'ecran -- verifier (aimbot vision)"
+    SCU=$(printf '%s\n' "$SCN" | screencap_unknown)
+    if [ -n "$SCU" ]; then
+      probe WARN 1 "[-deep] Enregistrement d'ecran" "App(s) INCONNUE(S) peuvent capturer l'ecran -- verifier (aimbot vision)"
+      printf '%s\n' "$SCU" | while IFS= read -r l; do [ -n "$l" ] && detail "ScreenCapture inconnue : $l"; done
+    elif [ -n "$SCN" ]; then
+      probe INFO 0 "[-deep] Enregistrement d'ecran" "Seulement des apps courantes (visio, stream, navigateur)"
       printf '%s\n' "$SCN" | while IFS= read -r l; do [ -n "$l" ] && detail "ScreenCapture : $l"; done
     else
       probe OK 0 "[-deep] Enregistrement d'ecran" "Aucune app non-Apple avec capture d'ecran"
@@ -364,8 +404,11 @@ rep_add "- Sur console (PS5) le vrai wallhack est quasi impossible ; risque cons
 rep_add "- Sans Full Disk Access (--deep), le meilleur signal (permission d'enregistrement d'ecran)"
 rep_add "  est indisponible. Un refus de FDA est lui-meme un signal pour le responsable."
 
+# Le resultat se lit dans la fenetre ; le rapport est une trace technique, jamais sur le Bureau du
+# joueur (meme decision que DexCheck Windows, 16/09).
 if [ -z "$OUTDIR" ]; then
-  if [ -d "$HOME/Desktop" ] && [ -w "$HOME/Desktop" ]; then OUTDIR="$HOME/Desktop"; else OUTDIR="${TMPDIR:-/tmp}"; fi
+  OUTDIR="${TMPDIR:-/tmp}/DexCheck"
+  mkdir -p "$OUTDIR" 2>/dev/null || OUTDIR="${TMPDIR:-/tmp}"
 fi
 STAMP=$(date +%Y%m%d-%H%M%S 2>/dev/null)
 BASE="DexCheck-Mac_${HOSTN}_${STAMP}"
@@ -390,9 +433,12 @@ if [ "$VERDICT" = "CLEAN" ]; then
 else
   echo "   ${C_INFO}Signaux leves (voir rapport) ; a recouper visuellement, jugement final au responsable.${C_RST}"
 fi
-echo "   Rapport : $TXT"
-echo "   HTML    : $HTML"
-echo "   SHA256  : ${C_INFO}${SHA}${C_RST}"
+FOUND=$(printf '%s\n' "$REPORT" | grep -E '^\[(WARN|FLAG)\]')
+if [ -n "$FOUND" ]; then
+  echo ""
+  echo "   ${VC}CE QUI A ETE TROUVE :${C_RST}"
+  printf '%s\n' "$FOUND" | while IFS= read -r l; do echo "   $l"; done
+fi
 echo "  ${C_HEAD}------------------------------------------------------------------${C_RST}"
 echo ""
 exit 0
