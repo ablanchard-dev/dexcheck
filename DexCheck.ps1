@@ -34,7 +34,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
-$script:Version  = '1.0.0'
+$script:Version  = '1.1.0'
 # Empreinte du script lui-meme, calculee au lancement et imprimee dans le rapport.
 # `n/a` si le script est dot-source ou colle dans la console (pas de chemin sur disque) :
 # on prefere le dire plutot qu'afficher une valeur qui ne veut rien dire.

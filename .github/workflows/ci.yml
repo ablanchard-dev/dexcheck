@@ -26,3 +26,12 @@ jobs:
             (Resolve-Path .\DexCheck.ps1), [ref]$null, [ref]$errors) | Out-Null
           if ($errors) { $errors | ForEach-Object { Write-Host $_ }; exit 1 }
           Write-Host "DexCheck.ps1 : parse OK"
+
+  mac-selftest:
+    name: DexCheck-Mac self-test (logique pure)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auto-test du script macOS
+        run: bash DexCheck-Mac.command --self-test
