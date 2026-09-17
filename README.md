@@ -3,8 +3,9 @@
 [![CI](https://github.com/ablanchard-dev/dexcheck/actions/workflows/ci.yml/badge.svg)](https://github.com/ablanchard-dev/dexcheck/actions/workflows/ci.yml)
 
 Anti-cheat PC check for Call of Duty / Warzone, run live during a supervised
-screen-share. It reads the machine, never modifies it, and prints a verdict with
-the detail of every finding in the window.
+screen-share. It reads the machine, never modifies it (the only thing it writes is its
+own report in `%TEMP%\DexCheck`; no network access), and prints a verdict with the
+detail of every finding in the window.
 
 Built for the Warzup community to vet players reported for cheating: the player
 runs it while a moderator watches the output scroll by.
