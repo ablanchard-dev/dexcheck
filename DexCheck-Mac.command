@@ -56,7 +56,9 @@ SIG_REMOTE="anydesk|teamviewer|parsec|moonlight|sunshine|rustdesk|splashtop|noma
 SIG_CHEAT="dma radar|unknowncheats|engineowning|phantomoverlay|radarflow|dmaradar"
 SIG_CHEAT_GENERIC="aimbot|wallhack|triggerbot|colorbot"
 # Apps courantes avec permission d'enregistrement d'ecran (visio, stream, navigateurs) : INFO.
-SIG_SCREENCAP_OK="discord|obs|zoom|teams|slack|skype|webex|loom|streamlabs|twitch|chrome|firefox|brave|edge|arc|quicktime|screenflow|cleanshot|facetime"
+# Identifiants d'app COMPLETS (la base TCC stocke des bundle ids) : un mot court comme « arc » ou
+# « obs » matcherait « com.x.radarclient » et blanchirait une app radar.
+SIG_SCREENCAP_OK="com.hnc.discord|com.obsproject.obs-studio|us.zoom.xos|com.microsoft.teams|com.tinyspeck.slackmacgap|com.skype.skype|com.cisco.webex|com.loom.desktop|com.streamlabs|tv.twitch|com.google.chrome|org.mozilla.firefox|com.brave.browser|com.microsoft.edgemac|company.thebrowser.browser|com.apple.quicktimeplayerx|net.telestream.screenflow|pl.maketheweb.cleanshotx"
 SIG_CHEATDOM="engineowning|phantomoverlay|lavicheats|unknowncheats|fecurity|interwebz|memesense|skript.gg|coldvision|hypervision|hypercheats|ring-1|susano.gg|abstrakt.cc|klarcheats|cobracheats|disconnect.gg"
 
 # matches_any HAYSTACK PIPE_PATTERNS -> 0 si une pattern est sous-chaine (insensible casse).
@@ -141,6 +143,8 @@ run_self_test() {
       "$(printf 'com.hnc.Discord\ncom.obsproject.obs-studio\nus.zoom.xos\n' | screencap_unknown)" ""
   _eq "screencap: app inconnue remontee" \
       "$(printf 'com.hnc.Discord\ncom.unknown.radarview\n' | screencap_unknown)" "com.unknown.radarview"
+  _eq "screencap: une app radar contenant « arc » ou « obs » n'est PAS blanchie" \
+      "$(printf 'com.x.radarclient\ncom.jobs.overlay\n' | screencap_unknown)" "$(printf 'com.x.radarclient\ncom.jobs.overlay')"
 
   echo ""
   echo "BILAN self-test : ${fails} FAIL"
