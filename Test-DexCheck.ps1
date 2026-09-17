@@ -1626,6 +1626,23 @@ Test-Case "Terminal : progression par sonde (compteur i/N) presente dans le code
     ($src -match 'Write-ProbeLine \$r -Index \$idx -Total \$probes\.Count')
 }
 
+Section "J. REVUE 17/09 : PowerShell 32 bits sur Windows 64 bits"
+# Dans un PowerShell 32 bits, HKLM:\SOFTWARE\...\Run, IFEO et System32\drivers sont REDIRIGES vers
+# WOW6432Node / SysWOW64 : Persistance, IFEO et pilotes liraient les mauvais emplacements et
+# diraient « rien trouve ». Le script doit se relancer dans le PowerShell 64 bits natif.
+Test-Case "Get-Native64PowerShell : processus 32 bits sur OS 64 bits => chemin sysnative ; sinon rien" {
+    $p = Get-Native64PowerShell -Is64BitOS $true -Is64BitProcess $false -WinDir 'C:\Windows'
+    ($p -eq 'C:\Windows\sysnative\WindowsPowerShell\v1.0\powershell.exe') -and
+    ($null -eq (Get-Native64PowerShell -Is64BitOS $true -Is64BitProcess $true -WinDir 'C:\Windows')) -and
+    ($null -eq (Get-Native64PowerShell -Is64BitOS $false -Is64BitProcess $false -WinDir 'C:\Windows'))
+}
+Test-Case "ConvertTo-ArgList : les parametres passes sont retransmis a la relance (switch, texte, nombre)" {
+    $a = @(ConvertTo-ArgList @{ Deep = [switch]$true; NoPause = [switch]$false; Nonce = 'mot du modo'; FreeSpaceCapMB = 64 })
+    ($a -contains '-Deep') -and ($a -notcontains '-NoPause') -and
+    ($a[[array]::IndexOf($a, '-Nonce') + 1] -eq 'mot du modo') -and
+    ($a[[array]::IndexOf($a, '-FreeSpaceCapMB') + 1] -eq '64')
+}
+
 Section "I. REVUE 17/09 : dossiers utilisateur rediriges par OneDrive"
 # Mesure sur le PC d'Alex : Bureau reel = OneDrive\Bureau (33 fichiers) alors que les sondes lisaient
 # %USERPROFILE%\Desktop (8 fichiers), idem Documents (48 vs 4). Un cheat pose sur le vrai Bureau

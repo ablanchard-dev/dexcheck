@@ -3016,6 +3016,32 @@ function ConvertTo-HtmlText {
     return ($s -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;' -replace '"','&quot;')
 }
 
+function Get-Native64PowerShell {
+    # PUR. Dans un PowerShell 32 bits sur Windows 64 bits, HKLM:\SOFTWARE (Run, IFEO) et
+    # System32\drivers sont rediriges vers WOW6432Node / SysWOW64 : plusieurs sondes lisaient les
+    # mauvais emplacements et concluaient « rien trouve ». Rend le PowerShell natif a relancer.
+    param([bool]$Is64BitOS, [bool]$Is64BitProcess, [string]$WinDir)
+    if ($Is64BitOS -and -not $Is64BitProcess -and $WinDir) {
+        return (Join-Path $WinDir 'sysnative\WindowsPowerShell\v1.0\powershell.exe')
+    }
+    return $null
+}
+
+function ConvertTo-ArgList {
+    # PUR. Parametres lies -> arguments de ligne de commande pour la relance 64 bits.
+    param($Bound)
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($k in $Bound.Keys) {
+        $v = $Bound[$k]
+        if ($v -is [System.Management.Automation.SwitchParameter]) {
+            if ($v.IsPresent) { $out.Add("-$k") }
+        } elseif ($null -ne $v) {
+            $out.Add("-$k"); $out.Add([string]$v)
+        }
+    }
+    return $out.ToArray()
+}
+
 function Resolve-DefaultReportDir {
     # Le resultat se lit dans la fenetre. Les fichiers (txt/html/csv) restent une trace technique :
     # dans TEMP, jamais sur le Bureau du joueur.
@@ -3542,4 +3568,13 @@ function Invoke-DexCheck {
     return $rep
 }
 
-if (-not $NoRun) { Invoke-DexCheck | Out-Null }
+if (-not $NoRun) {
+    $native = Get-Native64PowerShell -Is64BitOS ([Environment]::Is64BitOperatingSystem) `
+        -Is64BitProcess ([Environment]::Is64BitProcess) -WinDir $env:WINDIR
+    if ($native -and $PSCommandPath -and (Test-Path -LiteralPath $native)) {
+        Write-Host "  PowerShell 32 bits detecte : relance en 64 bits (sinon registre et pilotes seraient mal lus)." -ForegroundColor Yellow
+        & $native -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @(ConvertTo-ArgList $PSBoundParameters)
+        exit $LASTEXITCODE
+    }
+    Invoke-DexCheck | Out-Null
+}
