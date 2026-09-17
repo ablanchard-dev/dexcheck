@@ -22,6 +22,23 @@ et ce qui a été trouvé s'affichent dans la fenêtre. Lancé depuis l'intérie
 Guide joueur : `LANCER-LE-CHECK.txt`. Vérification visuelle du setup (DMA, 2e PC) :
 `CHECK-CONSOLE-SETUP.txt`.
 
+## What the moderator sees
+
+End of a real run on a clean gaming PC (`-Deep`, 17/09/2026), copied as printed:
+
+```
+  ------------------------------------------------------------------
+   BILAN   : 30 OK | 10 INFO | 0 WARN | 0 FLAG | 0 NA   (40 sondes)
+  ==================================================================
+   VERDICT : CLEAN
+  ==================================================================
+   ACTION  : Rien de suspect cote logiciel. Poursuivre le check visuel (DMA / 2e PC / OS reimage non couverts) : un verdict propre ne prouve pas l'absence de triche.
+   Aucune sonde n'a leve de drapeau : rien de suspect dans ce qu'un check logiciel peut voir.
+```
+
+On a flagged PC, the same screen lists the FLAG findings first, then WARN, each with
+what the alert means and its last pieces of evidence (file name, date, source).
+
 ## What it looks at
 
 40 read-only probes, grouped:
@@ -66,7 +83,8 @@ setup check is required, not optional.
 logic, verdict mapping, real runs, and for each advanced probe a planted
 true-positive plus a clean-PC case built from values measured on a real machine.
 The deleted-file detection is proven end to end: the test deletes a uniquely named
-bait file and checks the raw USN reader finds it.
+bait file and checks the raw USN reader finds it, including when the file is renamed
+to a neutral name before being deleted.
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Test-DexCheck.ps1
