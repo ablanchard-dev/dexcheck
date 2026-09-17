@@ -896,6 +896,28 @@ Test-Case "DELFILES : mot generique sur un fichier source/doc (.py .ts .md) => P
         ($dev.Status -ne 'WARN') -and ($mix.Status -eq 'WARN') -and (($mix.Details -join "`n") -notmatch 'config_loader\.py') -and ($py.Status -eq 'WARN')
     } finally { ${function:script:Get-UsnScan} = $orig }
 }
+# Boucle produits 17/09 : technique anti-forensique triviale, renommer engineowning.exe en a.tmp puis
+# supprimer. Le journal n'enregistrait la SUPPRESSION que sous le nom neutre et DexCheck ne voyait
+# rien. Windows journalise l'ANCIEN nom d'un renommage (USN_REASON_RENAME_OLD_NAME) : il faut le lire.
+Test-Case "USN vrai-positif : un fichier au nom de cheat RENOMME puis supprime est quand meme capture" {
+    if (-not $adminE) { Write-Host "      (admin requis -> skip non bloquant)" -ForegroundColor DarkGray; return $true }
+    $token = 'baitz' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+    $vol   = (Split-Path $env:TEMP -Qualifier)
+    $bait  = Join-Path $env:TEMP ('dexcheck-selftest-' + $token + '.exe')
+    $plain = Join-Path $env:TEMP ('dexcheck-neutre-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.tmp')
+    try {
+        Set-Content -Path $bait -Value 'x' -ErrorAction Stop
+        Rename-Item -LiteralPath $bait -NewName (Split-Path $plain -Leaf) -ErrorAction Stop
+        Remove-Item -LiteralPath $plain -Force -ErrorAction Stop
+    } catch { Write-Host ("      -> appat impossible : {0}" -f $_.Exception.Message) -ForegroundColor DarkYellow; return $false }
+    $caught = @(); $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt 15 -and $caught.Count -lt 1) {
+        Start-Sleep -Milliseconds 250
+        $scan = Get-UsnScan -Volume $vol -FlagPatterns @($token) -WarnPatterns @()
+        $caught = @($scan.FlagSuspects | Where-Object { [string]$_.Name -match $token })
+    }
+    ($caught.Count -ge 1)
+}
 Test-Case "USN vrai-positif : le token bidon N'EST PAS un vrai mot de cheat (l'appat ne pollue pas les vrais runs)" {
     $flag = Get-CheatFlagPatterns
     (-not (Test-AnyWord 'dexcheck-selftest-baitztoken.exe' $flag)) -and (-not (Test-AnyWord 'dexcheck-selftest-baitztoken.exe' $script:CheatWarnWords))

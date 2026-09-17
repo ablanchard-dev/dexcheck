@@ -194,6 +194,7 @@ public static class DexCheckUsnReader {
     const uint FSCTL_QUERY_USN_JOURNAL = 0x000900f4;
     const uint FSCTL_READ_USN_JOURNAL  = 0x000900bb;
     const uint USN_REASON_FILE_DELETE  = 0x00000200;
+    const uint USN_REASON_RENAME_OLD_NAME = 0x00001000;
     static readonly IntPtr INVALID = new IntPtr(-1);
 
     [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
@@ -374,17 +375,22 @@ public static class DexCheckUsnReader {
                     uint attrs = (uint)Marshal.ReadInt32(outBuf, off + 52);
                     int nameLen = Marshal.ReadInt16(outBuf, off + 56) & 0xFFFF;
                     int nameOff = Marshal.ReadInt16(outBuf, off + 58) & 0xFFFF;
-                    if ((reason & USN_REASON_FILE_DELETE) != 0 && nameLen > 0 &&
+                    // RENAME_OLD_NAME : renommer engineowning.exe en a.tmp puis supprimer ne journalise la
+                    // suppression que sous a.tmp. L'ancien nom reste lisible ici : on le juge comme un nom supprime.
+                    bool isDel = (reason & USN_REASON_FILE_DELETE) != 0;
+                    if ((isDel || (reason & USN_REASON_RENAME_OLD_NAME) != 0) && nameLen > 0 &&
                         nameOff >= 60 && (long)off + nameOff + nameLen <= got) {
                         string nm = Marshal.PtrToStringUni(new IntPtr(outBuf.ToInt64() + off + nameOff), nameLen / 2);
                         DateTime dt; try { dt = DateTime.FromFileTime(ts); } catch { dt = DateTime.MinValue; }
-                        res.Total++;
-                        if (ts > 0) {
-                            if (res.OldestTicks == 0 || ts < res.OldestTicks) res.OldestTicks = ts;
-                            if (ts > res.NewestTicks) res.NewestTicks = ts;
+                        if (isDel) {
+                            res.Total++;
+                            if (ts > 0) {
+                                if (res.OldestTicks == 0 || ts < res.OldestTicks) res.OldestTicks = ts;
+                                if (ts > res.NewestTicks) res.NewestTicks = ts;
+                            }
+                            res.Recent.Add(new Rec { Name = nm, Time = dt, Reason = reason, Attributes = attrs });
+                            if (res.Recent.Count > maxRecent) res.Recent.RemoveAt(0);
                         }
-                        res.Recent.Add(new Rec { Name = nm, Time = dt, Reason = reason, Attributes = attrs });
-                        if (res.Recent.Count > maxRecent) res.Recent.RemoveAt(0);
                         if (nm != null) {
                             string low = nm.ToLowerInvariant();
                             bool isFlag = false;
@@ -836,6 +842,13 @@ function Probe-Usn {
     New-ProbeResult -Id 'USN' -Name 'USN Journal (etat)' -Status 'OK' -Severity 0 -Summary "Journal actif sur : $($active -join ', ')" -Details $details
 }
 
+# USN_REASON_RENAME_OLD_NAME (0x1000) sans FILE_DELETE (0x200) : le nom a disparu par renommage.
+function Get-UsnRenameTag($Rec) {
+    $Reason = [uint32]0; try { $Reason = [uint32]$Rec.Reason } catch { }
+    if (($Reason -band 0x1000) -ne 0 -and ($Reason -band 0x200) -eq 0) { return '  (ancien nom : renomme)' }
+    return ''
+}
+
 function Probe-DeletedFiles {
     $details = New-Object System.Collections.Generic.List[string]
     if (-not (Test-Admin)) {
@@ -869,10 +882,10 @@ function Probe-DeletedFiles {
                 $details.Add(("  {0} : {1} suppression(s), fenetre {2:yyyy-MM-dd HH:mm} -> {3:yyyy-MM-dd HH:mm} (~{4} j)" -f $drive, $t, $o, $n, [int]$sp.TotalDays))
             } catch { $details.Add("  $drive : $t suppression(s)") }
         } else { $details.Add("  $drive : $t suppression(s)") }
-        foreach ($s in $scan.FlagSuspects) { $flagAll.Add([pscustomobject]@{ Time = $s.Time; Name = ("[$drive] " + [string]$s.Name) }) }
+        foreach ($s in $scan.FlagSuspects) { $flagAll.Add([pscustomobject]@{ Time = $s.Time; Name = ("[$drive] " + [string]$s.Name); Tag = (Get-UsnRenameTag $s) }) }
         foreach ($s in $scan.WarnSuspects) {
             $attrs = 0; try { $attrs = [int]$s.Attributes } catch { }
-            $warnAll.Add([pscustomobject]@{ Time = $s.Time; Name = ("[$drive] " + [string]$s.Name); IsDir = (($attrs -band 0x10) -ne 0) })
+            $warnAll.Add([pscustomobject]@{ Time = $s.Time; Name = ("[$drive] " + [string]$s.Name); Tag = (Get-UsnRenameTag $s); IsDir = (($attrs -band 0x10) -ne 0) })
         }
         foreach ($r in $scan.Recent) { $recentAll.Add([pscustomobject]@{ Time = $r.Time; Name = ("[$drive] " + [string]$r.Name) }) }
     }
@@ -907,13 +920,13 @@ function Probe-DeletedFiles {
     } | Sort-Object Time -Descending)
     if ($flagHits.Count -gt 0) {
         $details.Add("SUPPRESSIONS AU NOM DE CHEAT (distinctif, tous volumes) :")
-        foreach ($h in ($flagHits | Select-Object -First 25)) { $details.Add(("  {0:yyyy-MM-dd HH:mm}  {1}" -f $h.Time, $h.Name)) }
+        foreach ($h in ($flagHits | Select-Object -First 25)) { $details.Add(("  {0:yyyy-MM-dd HH:mm}  {1}{2}" -f $h.Time, $h.Name, $h.Tag)) }
         if ($warnHits.Count -gt 0) { $details.Add("(+ $($warnHits.Count) suppression(s) au nom generique loader/cheat - listees a part)") }
         return (New-ProbeResult -Id 'DELFILES' -Name 'Fichiers supprimes (USN)' -Status 'FLAG' -Severity 2 -Summary "$($flagHits.Count) suppression(s) au nom de cheat distinctif" -Details $details)
     }
     if ($warnHits.Count -gt 0) {
         $details.Add("SUPPRESSIONS AU NOM GENERIQUE (loader/cheat/skript... = dual-use, a verifier, PAS un ban) :")
-        foreach ($h in ($warnHits | Select-Object -First 25)) { $details.Add(("  {0:yyyy-MM-dd HH:mm}  {1}" -f $h.Time, $h.Name)) }
+        foreach ($h in ($warnHits | Select-Object -First 25)) { $details.Add(("  {0:yyyy-MM-dd HH:mm}  {1}{2}" -f $h.Time, $h.Name, $h.Tag)) }
         return (New-ProbeResult -Id 'DELFILES' -Name 'Fichiers supprimes (USN)' -Status 'WARN' -Severity 1 -Summary "$($warnHits.Count) suppression(s) au nom generique (mod-loader/cheat sheet ?) - a verifier" -Details $details)
     }
     if ($grandTotal -eq 0) {

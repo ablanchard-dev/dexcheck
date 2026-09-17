@@ -8,6 +8,7 @@ Windows (`DexCheck.ps1` — 38 probes, +2 in `-Deep`):
 
 - Identity and clock (clock-rollback heuristic), Windows install age
 - USN journal state and a deleted-file timeline (raw USN journal reader via P/Invoke)
+- Rename-before-delete is covered: the old name of a renamed file (`USN_REASON_RENAME_OLD_NAME`) is matched like a deleted name, so `engineowning.exe` renamed to `a.tmp` then deleted is still caught
 - Execution/existence evidence that survives deletion of the binary and reboots: Prefetch, BAM/DAM, UserAssist, Shimcache (AppCompatCache, parsed from the raw registry blob), PCA `PcaAppLaunchDic` (Win11 22H2+, also catches launches from USB / network shares)
 - Live outbound TCP connections + owning process (name and path), matched against the known-cheat provider list — catches a cheat loader / licensing client talking to the internet during the session
 - Processes, persistence (Run keys, scheduled tasks), injection/hijack vectors (AppInit_DLLs, AppCertDLLs, IFEO Debugger), event-log clearing (1102/104, rollover-aware)
