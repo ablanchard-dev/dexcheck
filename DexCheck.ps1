@@ -1254,6 +1254,27 @@ function Probe-Prefetch {
     New-ProbeResult -Id 'PREFETCH' -Name 'Prefetch' -Status $status -Severity $sev -Summary $summary -Details $details
 }
 
+function Test-CheatNameMatch {
+    # PUR. Un nom ou chemin porte-t-il un motif de cheat ? Marque LONGUE (>= 8) : sous-chaine,
+    # pour attraper 'EngineOwningLoader.exe'. Motif COURT : frontiere de mot, sinon 'ring-1'
+    # accuse 'spring-1.5'. Partage par les sondes Process et Persistence.
+    param([string]$Text, [string[]]$Patterns)
+    if ([string]::IsNullOrEmpty($Text)) { return $false }
+    $long  = @($Patterns | Where-Object { $_ -and $_.Length -ge 8 })
+    $short = @($Patterns | Where-Object { $_ -and $_.Length -lt 8 })
+    return ((Test-AnyPattern $Text $long) -or (Test-AnyWord $Text $short))
+}
+
+function Get-PersistencePatterns {
+    # PUR. Cheats + outils d'entree SUSPECTS (severite >= 1). Les outils de severite 0
+    # (DS4Windows, Razer Synapse, G HUB, x360ce) sont legitimes : qu'ils demarrent avec
+    # Windows ne doit pas faire monter un PC propre en A VERIFIER (boucle 17/09).
+    $pat = @()
+    foreach ($c in $script:CheatSoftware) { $pat += $c.Patterns }
+    foreach ($t in $script:InputTools) { if ([int]$t.Severity -ge 1) { $pat += $t.App } }
+    return @($pat | Where-Object { $_ } | Select-Object -Unique)
+}
+
 function Test-ProcessIsCheat {
     # Pur -> testable. Un process EN COURS dont le nom, le chemin OU la ligne de commande porte un
     # token de cheat DISTINCTIF = execution en cours prouvee. La ligne de commande est matchee en
@@ -1262,10 +1283,8 @@ function Test-ProcessIsCheat {
     param([string]$Name, [string]$Path, [string]$CommandLine, [string[]]$CheatPatterns)
     # Nom/chemin : une marque LONGUE (>= 8) matche en sous-chaine pour attraper 'EngineOwningLoader.exe' ;
     # un motif COURT exige une frontiere de mot, sinon 'ring-1' accusait 'C:\dev\spring-1.5\java.exe'.
-    $long  = @($CheatPatterns | Where-Object { $_ -and $_.Length -ge 8 })
-    $short = @($CheatPatterns | Where-Object { $_ -and $_.Length -lt 8 })
     foreach ($s in @($Name, $Path)) {
-        if ((Test-AnyPattern $s $long) -or (Test-AnyWord $s $short)) { return $true }
+        if (Test-CheatNameMatch $s $CheatPatterns) { return $true }
     }
     if (Test-AnyWord $CommandLine $CheatPatterns) { return $true }
     return $false
@@ -1309,8 +1328,7 @@ function Probe-Processes {
 function Probe-Persistence {
     $details = New-Object System.Collections.Generic.List[string]
     $suspect = New-Object System.Collections.Generic.List[string]
-    $pat = @(); foreach($c in $script:CheatSoftware){ $pat += $c.Patterns }
-    foreach($t in $script:InputTools){ $pat += $t.App }
+    $pat = Get-PersistencePatterns
     # Run keys
     $runKeys = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
@@ -1325,7 +1343,7 @@ function Probe-Persistence {
             foreach($p in $props.PSObject.Properties){
                 if ($p.Name -like 'PS*') { continue }
                 $val = [string]$p.Value
-                if ((Test-AnyPattern $val $pat) -or (Test-AnyPattern $p.Name $pat)) { $suspect.Add("Run: $($p.Name) = $val") }
+                if ((Test-CheatNameMatch $val $pat) -or (Test-CheatNameMatch $p.Name $pat)) { $suspect.Add("Run: $($p.Name) = $val") }
                 elseif (Test-AnyPattern $val @('\temp\','\downloads\','\appdata\local\temp\')) { $suspect.Add("Run en zone temp: $($p.Name) = $val") }
             }
         } catch { }
@@ -1338,7 +1356,7 @@ function Probe-Persistence {
             foreach($a in $acts){
                 $ex = ''
                 try { $ex = [string]$a.Execute } catch { }
-                if ((Test-AnyPattern $ex $pat) -or (Test-AnyPattern $tk.TaskName $pat)) { $suspect.Add("Tache: $($tk.TaskName) -> $ex") }
+                if ((Test-CheatNameMatch $ex $pat) -or (Test-CheatNameMatch $tk.TaskName $pat)) { $suspect.Add("Tache: $($tk.TaskName) -> $ex") }
             }
         }
     } catch { }

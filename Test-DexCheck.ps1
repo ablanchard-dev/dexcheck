@@ -1626,6 +1626,26 @@ Test-Case "Terminal : progression par sonde (compteur i/N) presente dans le code
     ($src -match 'Write-ProbeLine \$r -Index \$idx -Total \$probes\.Count')
 }
 
+Section "K. BOUCLE DEXCHECK 17/09 : persistance au demarrage"
+# Probe-Persistence cherchait TOUS les outils d'entree, y compris ceux que DexCheck classe lui-meme
+# severite 0 (DS4Windows, Razer Synapse, G HUB, x360ce), en sous-chaine. Un joueur dont Synapse ou
+# DS4Windows demarre avec Windows (tres courant) sortait « persistance a verifier » => A VERIFIER.
+Test-Case "Persistance : un outil d'entree LEGITIME au demarrage (DS4Windows, Razer Synapse) n'est PAS suspect" {
+    $p = Get-PersistencePatterns
+    (-not (Test-CheatNameMatch 'DS4Windows' $p)) -and
+    (-not (Test-CheatNameMatch 'Razer Synapse' $p)) -and
+    (-not (Test-CheatNameMatch '"C:\Program Files\Nefarius\DS4Windows\DS4Windows.exe" --minimized' $p))
+}
+Test-Case "Persistance : un cheat ou un outil anti-recul au demarrage reste suspect (EngineOwning, reWASD, Cronus)" {
+    $p = Get-PersistencePatterns
+    (Test-CheatNameMatch 'C:\Users\x\AppData\EngineOwningLoader.exe' $p) -and
+    (Test-CheatNameMatch 'reWASD' $p) -and
+    (Test-CheatNameMatch 'Cronus Zen Studio' $p)
+}
+Test-Case "Persistance : un motif court n'accuse pas un chemin qui le contient ('ring-1' dans 'spring-1.5')" {
+    -not (Test-CheatNameMatch 'C:\dev\spring-1.5\bin\java.exe' (Get-PersistencePatterns))
+}
+
 Section "J. REVUE 17/09 : PowerShell 32 bits sur Windows 64 bits"
 # Dans un PowerShell 32 bits, HKLM:\SOFTWARE\...\Run, IFEO et System32\drivers sont REDIRIGES vers
 # WOW6432Node / SysWOW64 : Persistance, IFEO et pilotes liraient les mauvais emplacements et
