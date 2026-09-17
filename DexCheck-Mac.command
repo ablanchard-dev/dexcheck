@@ -89,6 +89,20 @@ screencap_unknown() {
   done
 }
 
+# invoking_home UID SUDO_USER HOME -> le dossier du joueur qui a lance le check. Le mode --deep se
+# lance avec sudo : selon la configuration de sudo, $HOME y vaut /var/root, et la base TCC lue
+# (detection du Full Disk Access, enregistrement d'ecran, accessibilite) etait alors celle de root.
+invoking_home() {
+  local h=""
+  if [ "$1" = "0" ] && [ -n "$2" ]; then
+    h=$(dscl . -read "/Users/$2" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+    [ -n "$h" ] || h="/Users/$2"
+  else
+    h="$3"
+  fi
+  printf '%s' "$h"
+}
+
 # user_homes BASE CURRENT_HOME -> un dossier par ligne : CURRENT_HOME d'abord, puis chaque compte
 # de BASE (/Users). Shared, Guest, fichiers et dossiers caches ecartes. Sans ca, les sondes ne
 # lisaient que $HOME : un joueur qui triche depuis un 2e compte macOS passait dessous (17/09).
@@ -167,6 +181,10 @@ run_self_test() {
   : > "$ub/fichier-pas-un-compte"
   _eq "user_homes: HOME d'abord, puis les autres comptes ; Shared/Guest/fichiers/dossiers caches ecartes" \
       "$(user_homes "$ub" "$ub/bob")" "$(printf '%s\n%s' "$ub/bob" "$ub/alice")"
+  _eq "invoking_home: lance par sudo (uid 0) => dossier de l'utilisateur qui a tape la commande, pas /var/root" \
+      "$(invoking_home 0 alice /var/root)" "/Users/alice"
+  _eq "invoking_home: sans sudo => HOME tel quel" \
+      "$(invoking_home 501 "" /Users/bob)" "/Users/bob"
   _eq "user_homes: HOME hors de la base reste en tete" \
       "$(user_homes "$ub" "/var/root" | head -n 1)" "/var/root"
   rm -rf "$ub"
@@ -191,7 +209,9 @@ IS_ROOT=0; [ "$(id -u 2>/dev/null)" = "0" ] && IS_ROOT=1
 
 # Detection Full Disk Access : on tente de lire la TCC.db utilisateur. Refus -> pas de FDA.
 HAS_FDA=0
-TCC_USER="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+# Sous sudo (--deep), $HOME peut valoir /var/root : on lit le dossier du joueur qui a lance le check.
+PLAYER_HOME=$(invoking_home "$(id -u)" "$SUDO_USER" "$HOME")
+TCC_USER="$PLAYER_HOME/Library/Application Support/com.apple.TCC/TCC.db"
 if [ -r "$TCC_USER" ] && sqlite3 "$TCC_USER" "select count(*) from access" >/dev/null 2>&1; then
   HAS_FDA=1
 fi
@@ -270,7 +290,7 @@ else
 fi
 
 # --- 5. Outils de remote / streaming ----------------------------------------
-HAYSTACK=$( { ps -axo comm 2>/dev/null; ls /Applications 2>/dev/null; ls "$HOME/Applications" 2>/dev/null; } )
+HAYSTACK=$( { ps -axo comm 2>/dev/null; ls /Applications 2>/dev/null; ls "$PLAYER_HOME/Applications" 2>/dev/null; } )
 REM=$(printf '%s\n' "$HAYSTACK" | grep -iE "$SIG_REMOTE" | sed 's#.*/##' | sort -u)
 VNC_ON=$(launchctl list 2>/dev/null | grep -i 'screensharing')
 if [ -n "$REM" ] || [ -n "$VNC_ON" ]; then
@@ -296,7 +316,7 @@ fi
 
 # --- 7. Persistance (LaunchAgents / Daemons / login items) ------------------
 # LaunchAgents de CHAQUE compte (pas seulement $HOME), puis ceux du systeme.
-HOMES=$(user_homes /Users "$HOME")
+HOMES=$(user_homes /Users "$PLAYER_HOME")
 PERSIST=$( { printf '%s\n' "$HOMES" | while IFS= read -r h; do [ -n "$h" ] && ls "$h/Library/LaunchAgents" 2>/dev/null; done; \
              ls /Library/LaunchAgents /Library/LaunchDaemons 2>/dev/null; \
              osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null | tr ',' '\n'; } )
@@ -332,7 +352,7 @@ fi
 # --- 10. Corbeille ----------------------------------------------------------
 # Sans Full Disk Access, macOS refuse la lecture de ~/.Trash : « 0 element » aurait l'air d'une
 # corbeille vide alors qu'on n'a rien pu regarder.
-if TRASH_LS=$(ls -A "$HOME/.Trash" 2>/dev/null); then
+if TRASH_LS=$(ls -A "$PLAYER_HOME/.Trash" 2>/dev/null); then
   probe OK 0 "Corbeille" "$(printf '%s\n' "$TRASH_LS" | grep -c .) element(s)"
 else
   probe NA 0 "Corbeille" "Illisible (Full Disk Access requis) -- non verifiee"
