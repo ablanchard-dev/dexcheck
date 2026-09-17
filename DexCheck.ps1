@@ -1004,7 +1004,7 @@ function Probe-ExecEvidence {
 
     $total = $execs.Count
     $details.Add("Traces d'execution lues : $total (BAM/DAM = derniere exec + chemin ; UserAssist = lancements GUI de $(@($hives.Roots).Count) compte(s) connecte(s)). Ces artefacts survivent a la suppression du binaire.")
-    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : UserAssist non lu pour $(@($hives.Unread).Count) compte(s) Windows non connecte(s) (ruche non chargee ; la charger serait une ecriture) : $(@($hives.Unread) -join ', '). BAM/DAM couvre toujours tous les comptes.") }
+    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : UserAssist non lu pour $(@($hives.Unread).Count) compte(s) Windows : $(@($hives.Unread) -join ', ') (deconnecte = ruche non chargee, la charger serait une ecriture ; acces refuse = relancer en admin). BAM/DAM couvre toujours tous les comptes.") }
     if (-not (Test-Admin)) { $details.Add("NOTE : sans admin, BAM/DAM (ruche SYSTEM) non lus -> couverture reduite a UserAssist (HKCU).") }
 
     $flagHits = @($execs | Where-Object { Test-AnyWord ([string]$_.Path) $flagPat })
@@ -1363,7 +1363,9 @@ function Get-PersistenceHits {
         if ($null -eq $e) { continue }
         $nm = [string]$e.Name; $cmd = [string]$e.Command; $src = [string]$e.Source
         if ((Test-CheatNameMatch $cmd $Patterns) -or (Test-CheatNameMatch $nm $Patterns)) { $hits.Add("${src}: $nm = $cmd") }
-        elseif ($src -ne 'Tache' -and (Test-AnyPattern $cmd @('\temp\','\downloads\'))) { $hits.Add("$src en zone temp: $nm = $cmd") }
+        # Zone Temp : Run et Demarrage seulement (revue 17/09 : etendue par erreur aux services et au WMI,
+        # ou un installeur legitime pose un binaire dans C:\Windows\Temp).
+        elseif ($src -in @('Run','Demarrage') -and (Test-AnyPattern $cmd @('\temp\','\downloads\'))) { $hits.Add("$src en zone temp: $nm = $cmd") }
         # Service Windows ou abonnement WMI qui s'execute depuis le PROFIL utilisateur : rarement legitime
         # (un service s'installe sous Program Files). Pas pour Run : Discord/Spotify y pointent tous vers AppData.
         elseif ($src -in @('Service','WMI') -and (Test-UserZoneDriverPath $cmd)) { $hits.Add("$src depuis le profil utilisateur: $nm = $cmd") }
@@ -1453,7 +1455,7 @@ function Probe-Persistence {
         }
     } catch { $details.Add("NOTE : abonnements WMI (root\subscription) non lisibles ($($_.Exception.Message.Split([char]10)[0])).") }
     $suspect = Get-PersistenceHits -Entries $entries -Patterns $pat
-    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : cles Run non lues pour $(@($hives.Unread).Count) compte(s) Windows non connecte(s) (ruche non chargee) : $(@($hives.Unread) -join ', ').") }
+    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : cles Run non lues pour $(@($hives.Unread).Count) compte(s) Windows : $(@($hives.Unread) -join ', ').") }
     $details.Add("Inspecte : cles Run/RunOnce (64 et 32 bits, machine et $(@($hives.Roots).Count) compte(s) connecte(s)), $taskCount tache(s) planifiee(s) avec leurs arguments, $startupCount element(s) des dossiers Demarrage (cible des raccourcis), $serviceCount service(s) Windows, $wmiCount abonnement(s) WMI qui lancent une commande ou un script.")
     if ($suspect.Count -gt 0) {
         foreach($s in $suspect){ $details.Add("  $s") }
@@ -2347,6 +2349,21 @@ function Select-UserHiveRoots {
     return [pscustomobject]@{ Roots = $roots.ToArray(); Unread = $unread.ToArray() }
 }
 
+function Select-ReadableHives {
+    # PUR/testable (lecture injectee). Sans admin, Windows refuse d'ouvrir la ruche d'un AUTRE compte
+    # connecte : les sondes echouaient en silence et le rapport la comptait quand meme comme lue (revue
+    # 17/09). Ne garder que les ruches reellement ouvrables ; nommer les autres dans Unread.
+    param($Selection, [scriptblock]$CanRead)
+    $ok = New-Object System.Collections.Generic.List[object]
+    $unread = New-Object System.Collections.Generic.List[string]
+    foreach ($u in @($Selection.Unread)) { if ($u) { $unread.Add("$u (deconnecte)") } }
+    foreach ($r in @($Selection.Roots)) {
+        if (& $CanRead "$($r.User)\Software") { $ok.Add($r) }
+        else { $unread.Add("$($r.Sid) (connecte, acces refuse sans admin)") }
+    }
+    return [pscustomobject]@{ Roots = $ok.ToArray(); Unread = $unread.ToArray() }
+}
+
 function Get-UserHiveRoots {
     $cur = ''
     try { $cur = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value } catch { }
@@ -2354,7 +2371,8 @@ function Get-UserHiveRoots {
     try { $loaded = @(Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction Stop | ForEach-Object { $_.PSChildName }) } catch { }
     $profiles = @()
     try { $profiles = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | ForEach-Object { [pscustomobject]@{ Sid=$_.SID; LocalPath=$_.LocalPath; Special=[bool]$_.Special } }) } catch { }
-    return (Select-UserHiveRoots -LoadedSids $loaded -CurrentSid $cur -Profiles $profiles)
+    $sel = Select-UserHiveRoots -LoadedSids $loaded -CurrentSid $cur -Profiles $profiles
+    return (Select-ReadableHives -Selection $sel -CanRead { param($p) Test-Path -LiteralPath $p -ErrorAction SilentlyContinue })
 }
 
 function Get-UserProfileDirs {
@@ -2720,7 +2738,7 @@ function Probe-RecentActivity {
     } catch { }
     }
     $details.Add("$($names.Count) entree(s) RecentDocs/RunMRU/MuiCache analysee(s) sur $(@($hives.Roots).Count) compte(s) connecte(s) (fichiers ouverts recemment + commandes Executer + $muiCount exe lances).")
-    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : non lu pour $(@($hives.Unread).Count) compte(s) Windows non connecte(s) (ruche non chargee ; la charger serait une ecriture) : $(@($hives.Unread) -join ', ').") }
+    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : non lu pour $(@($hives.Unread).Count) compte(s) Windows : $(@($hives.Unread) -join ', ') (deconnecte = ruche non chargee, la charger serait une ecriture ; acces refuse = relancer en admin).") }
     $a = Get-WerCrashHits -Names $names -FlagPatterns (Get-CheatFlagPatterns) -WarnPatterns $script:CheatWarnWords
     if ($a.Flag.Count -gt 0) {
         foreach ($x in ($a.Flag | Select-Object -Unique)) { $details.Add("Nom de cheat DISTINCTIF ouvert/tape recemment : $x") }

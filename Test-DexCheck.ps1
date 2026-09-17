@@ -1806,6 +1806,24 @@ Test-Case "Historique PowerShell, navigateurs, rapports de plantage et cheats co
     }
     $ok
 }
+# Revue 17/09 : la regle « zone Temp » ne visait que Run et Demarrage ; etendue par erreur aux services et au WMI.
+Test-Case "Persistance GARDE-FOU (revue 17/09) : un service ou un abonnement WMI dans C:\Windows\Temp SANS nom de cheat n'est PAS suspect" {
+    $e = @(
+        [pscustomobject]@{ Source='Service'; Name='InstallerHelper'; Command='C:\Windows\Temp\setup\helper.exe' },
+        [pscustomobject]@{ Source='WMI'; Name='Cleanup'; Command='C:\Windows\Temp\clean.cmd' }
+    )
+    (Get-PersistenceHits -Entries $e -Patterns (Get-PersistencePatterns)).Count -eq 0
+}
+Test-Case "Select-ReadableHives (revue 17/09) : une ruche connectee mais REFUSEE (sans admin) n'est pas comptee comme lue et elle est nommee" {
+    $sel = [pscustomobject]@{
+        Roots  = @([pscustomobject]@{ Sid='S-1'; User='HKCU:'; Classes='HKCU:\Software\Classes' },
+                   [pscustomobject]@{ Sid='S-2'; User='Registry::HKEY_USERS\S-2'; Classes='Registry::HKEY_USERS\S-2_Classes' })
+        Unread = @('C:\Users\off')
+    }
+    $r = Select-ReadableHives -Selection $sel -CanRead { param($p) $p -notlike '*S-2*' }
+    ($r.Roots.Count -eq 1) -and ($r.Roots[0].Sid -eq 'S-1') -and
+    (@($r.Unread).Count -eq 2) -and ((@($r.Unread) -join '|') -match 'S-2.*admin')
+}
 Test-Case "Probe-Persistence lit aussi les services Windows et les abonnements WMI permanents" {
     $src = ${function:Probe-Persistence}.ToString()
     ($src -match 'Win32_Service') -and ($src -match 'root\\subscription') -and ($src -match 'CommandLineEventConsumer') -and ($src -match 'ActiveScriptEventConsumer')
@@ -1864,6 +1882,7 @@ Test-Case "PSHIST : telecharger-et-executer vers une cible NON cheat => INFO (ne
         New-Item -ItemType Directory -Force $h | Out-Null
         Set-Content -LiteralPath (Join-Path $h 'ConsoleHost_history.txt') -Value 'irm https://claude.ai/install.ps1 | iex'
         $env:APPDATA = $d
+        function Get-UserProfileDirs { @() }   # revue 17/09 : sinon les vrais profils de la machine de test sont lus
         $r = Probe-PsHistory
         ($r.Status -eq 'INFO') -and ($r.Severity -eq 0) -and (($r.Details -join "`n") -match 'claude\.ai')
     } finally { $env:APPDATA = $saved; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
@@ -1876,6 +1895,7 @@ Test-Case "PSHIST : cible au nom de cheat distinctif => reste FLAG" {
         New-Item -ItemType Directory -Force $h | Out-Null
         Set-Content -LiteralPath (Join-Path $h 'ConsoleHost_history.txt') -Value 'irm https://engineowning.to/loader.ps1 | iex'
         $env:APPDATA = $d
+        function Get-UserProfileDirs { @() }   # revue 17/09 : isole des vrais profils de la machine de test
         (Probe-PsHistory).Status -eq 'FLAG'
     } finally { $env:APPDATA = $saved; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
 }
