@@ -1824,6 +1824,14 @@ Test-Case "Select-ReadableHives (revue 17/09) : une ruche connectee mais REFUSEE
     ($r.Roots.Count -eq 1) -and ($r.Roots[0].Sid -eq 'S-1') -and
     (@($r.Unread).Count -eq 2) -and ((@($r.Unread) -join '|') -match 'S-2.*admin')
 }
+Test-Case "Raisonnement du verdict : les comptes Windows NON lus sont nommes a l'ecran, avec le geste a faire ; rien si tout a ete lu" {
+    $note = 'NOTE : non lu pour 1 compte(s) Windows : C:\Users\frere (deconnecte) (deconnecte = ruche non chargee, la charger serait une ecriture ; acces refuse = relancer en admin).'
+    $avec = @((New-ProbeResult -Id 'MRU' -Name 'm' -Status 'OK' -Severity 0 -Summary 's' -Details @('x', $note)))
+    $sans = @((New-ProbeResult -Id 'MRU' -Name 'm' -Status 'OK' -Severity 0 -Summary 's' -Details @('x')))
+    $l1 = (Get-VerdictReasoning $avec) -join "`n"
+    $l2 = (Get-VerdictReasoning $sans) -join "`n"
+    ($l1 -match 'C:\\Users\\frere') -and ($l1 -match '(?i)connecter') -and ($l2 -notmatch '(?i)comptes? Windows')
+}
 Test-Case "Probe-Persistence lit aussi les services Windows et les abonnements WMI permanents" {
     $src = ${function:Probe-Persistence}.ToString()
     ($src -match 'Win32_Service') -and ($src -match 'root\\subscription') -and ($src -match 'CommandLineEventConsumer') -and ($src -match 'ActiveScriptEventConsumer')

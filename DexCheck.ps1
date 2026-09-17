@@ -3441,6 +3441,12 @@ function Get-VerdictReasoning {
             }
         }
     }
+    # Comptes Windows dont le registre n'a pas ete lu : la note vit dans les details d'une sonde OK,
+    # que l'ecran de fin n'affiche pas. Le moderateur doit le voir pour pouvoir agir.
+    $acctNote = @($results | ForEach-Object { @($_.Details) } | Where-Object { [string]$_ -match '^NOTE : .*compte\(s\) Windows : ' } | Select-Object -First 1)
+    if ($acctNote.Count -gt 0 -and ([string]$acctNote[0] -match 'compte\(s\) Windows : (.+?)(?: \(deconnecte = |\.$)')) {
+        $out.Add("Comptes Windows non lus (registre) : $($Matches[1]). Si le joueur utilise l'un d'eux, lui demander de s'y connecter puis relancer le check.")
+    }
     $out.Add("Portee : ce check ne peut PAS voir un cheat DMA (2e PC + carte), un radar dans un onglet navigateur, ni un OS fraichement reimage. Un verdict propre ne PROUVE pas l'absence de triche - le check visuel du setup reste obligatoire.")
     return $out
 }
