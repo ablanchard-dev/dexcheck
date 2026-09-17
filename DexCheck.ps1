@@ -870,7 +870,10 @@ function Probe-DeletedFiles {
             } catch { $details.Add("  $drive : $t suppression(s)") }
         } else { $details.Add("  $drive : $t suppression(s)") }
         foreach ($s in $scan.FlagSuspects) { $flagAll.Add([pscustomobject]@{ Time = $s.Time; Name = ("[$drive] " + [string]$s.Name) }) }
-        foreach ($s in $scan.WarnSuspects) { $warnAll.Add([pscustomobject]@{ Time = $s.Time; Name = ("[$drive] " + [string]$s.Name) }) }
+        foreach ($s in $scan.WarnSuspects) {
+            $attrs = 0; try { $attrs = [int]$s.Attributes } catch { }
+            $warnAll.Add([pscustomobject]@{ Time = $s.Time; Name = ("[$drive] " + [string]$s.Name); IsDir = (($attrs -band 0x10) -ne 0) })
+        }
         foreach ($r in $scan.Recent) { $recentAll.Add([pscustomobject]@{ Time = $r.Time; Name = ("[$drive] " + [string]$r.Name) }) }
     }
     if (-not $readAny) {
@@ -896,7 +899,10 @@ function Probe-DeletedFiles {
         $n = [string]$_.Name
         # ponytail: assemblies .NET par prefixe (System.Runtime.Loader.dll) ; un cheat qui se nomme
         # Microsoft.X.dll passe en OK ici, mais reste visible dans EXEC/Prefetch s'il a tourne.
-        $benign = ($n -match $srcExt) -or ($n -match '(?i)(^|[\s\\])(System|Microsoft)\.[\w.]+\.dll$')
+        # Un DOSSIER au mot generique (ex. dossier temporaire pytest « test_loader_... ») n'est pas
+        # un executable de cheat (mesure 17/09). Les noms DISTINCTIFS passent par FLAG, pas ici.
+        $isDir = $false; try { $isDir = [bool]$_.IsDir } catch { }
+        $benign = $isDir -or ($n -match $srcExt) -or ($n -match '(?i)(^|[\s\\])(System|Microsoft)\.[\w.]+\.dll$')
         -not ($benign -and -not (Test-AnyWord $n $strong))
     } | Sort-Object Time -Descending)
     if ($flagHits.Count -gt 0) {
@@ -3068,11 +3074,24 @@ function Resolve-DefaultReportDir {
 
 function Get-FindingScreenLines {
     # PUR/testable. Le DETAIL de chaque WARN/FLAG (quel fichier, quelle commande), pour l'ecran de fin.
+    # Lu par un moderateur au moment de decider : FLAG d'abord, le sens de l'alerte (montre /
+    # ne prouve pas), puis les PREUVES (lignes indentees = fichiers, commandes, dates) avant
+    # les notes techniques, 6 lignes max par alerte.
     param($results)
     $out = New-Object System.Collections.Generic.List[string]
-    foreach ($r in @($results | Where-Object { $_.Status -in @('FLAG','WARN') })) {
+    $ordered = @(@($results | Where-Object { $_.Status -eq 'FLAG' }) + @($results | Where-Object { $_.Status -eq 'WARN' }))
+    foreach ($r in $ordered) {
         $out.Add(("[{0}] {1} : {2}" -f $r.Status, $r.Name, $r.Summary))
-        foreach ($d in @($r.Details | Select-Object -Last 12)) { $out.Add(("    {0}" -f ([string]$d).Trim())) }
+        foreach ($ml in @(Get-MeaningLines $r)) { $out.Add(("    {0}" -f $ml)) }
+        $details = @($r.Details | ForEach-Object { [string]$_ })
+        $evidence = @($details | Where-Object { $_ -match '^\s{2,}\S' })
+        # @( ) : une seule ligne de preuve serait deballee en scalaire et .Count leverait (StrictMode).
+        $pick = @(if ($evidence.Count -gt 0) { $evidence } else { $details })
+        # Les sondes ajoutent leurs lignes SUSPECTES en dernier (apres volumes, notes, activite
+        # recente) : les 6 dernieres. Mesure 17/09 : les 6 premieres montraient des .tmp de
+        # compilation et cachaient la vraie ligne suspecte.
+        foreach ($d in @($pick | Select-Object -Last 6)) { $out.Add(("    {0}" -f $d.Trim())) }
+        if ($pick.Count -gt 6) { $out.Add(("    (+ {0} autre(s) dans la trace %TEMP%\DexCheck)" -f ($pick.Count - 6))) }
     }
     return ,$out
 }
@@ -3236,7 +3255,7 @@ function Get-VerdictAction {
     # presentation : ne recalcule RIEN, lit le verdict deja calcule par Get-Verdict.
     param([string]$verdict)
     switch ($verdict) {
-        'ROUGE'      { return "MONTRER a l'arbitre : artefacts distinctifs corroborants (voir DRAPEAUX ROUGES), garder le rapport hashe. Ne pas bannir sur ce seul rapport sans arbitrage." }
+        'ROUGE'      { return "MONTRER a l'arbitre : artefacts distinctifs corroborants (voir ce qui a ete trouve), faire une capture de cet ecran. Ne pas bannir sur ce seul rapport sans arbitrage." }
         'SUSPECT'    { return "NE PAS accuser : un seul artefact distinctif = a verifier, pas une preuve. Poursuivre le check visuel du setup + croiser la VOD." }
         'A VERIFIER' { return "NE PAS accuser : des points dual-use a recouper. Poursuivre le check visuel du setup." }
         'CLEAN'      { return "Rien de suspect cote logiciel. Poursuivre le check visuel (DMA / 2e PC / OS reimage non couverts) : un verdict propre ne prouve pas l'absence de triche." }

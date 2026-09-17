@@ -1626,6 +1626,53 @@ Test-Case "Terminal : progression par sonde (compteur i/N) presente dans le code
     ($src -match 'Write-ProbeLine \$r -Index \$idx -Total \$probes\.Count')
 }
 
+Section "M. BOUCLE PRODUITS 17/09 : dossier supprime au nom generique"
+# Mesure sur le PC d'Alex : A VERIFIER a cause du DOSSIER temporaire pytest
+# « test_loader_fallback_when_yaml... » supprime. Un dossier au mot generique n'est pas un
+# executable de cheat ; un nom DISTINCTIF (FLAG) reste signale meme pour un dossier.
+Test-Case "DELFILES : DOSSIER supprime au nom generique => pas de WARN ; FICHIER .exe au meme mot => WARN" {
+    if (-not $adminE) { Write-Host "      (admin requis -> skip non bloquant)" -ForegroundColor DarkGray; return $true }
+    $orig = ${function:Get-UsnScan}
+    $now = Get-Date
+    try {
+        ${function:script:Get-UsnScan} = { param($Volume, $FlagPatterns, $WarnPatterns)
+            [pscustomobject]@{ Total = 1; FlagSuspects = @(); Recent = @(); OldestTicks = 0; NewestTicks = 0; StopError = 0
+                WarnSuspects = @([pscustomobject]@{ Name = 'test_loader_fallback_when_yaml0'; Time = $now; Attributes = 0x10 }) } }.GetNewClosure()
+        $dir = Probe-DeletedFiles
+        ${function:script:Get-UsnScan} = { param($Volume, $FlagPatterns, $WarnPatterns)
+            [pscustomobject]@{ Total = 1; FlagSuspects = @(); Recent = @(); OldestTicks = 0; NewestTicks = 0; StopError = 0
+                WarnSuspects = @([pscustomobject]@{ Name = 'cheat-loader.exe'; Time = $now; Attributes = 0x20 }) } }.GetNewClosure()
+        $exe = Probe-DeletedFiles
+        ($dir.Status -ne 'WARN') -and ($exe.Status -eq 'WARN')
+    } finally { ${function:script:Get-UsnScan} = $orig }
+}
+
+Section "L. BOUCLE PRODUITS 17/09 : ecran de fin lisible par un moderateur"
+# Le moderateur decide sur l'ecran de fin. Avant : alertes dans l'ordre des sondes (un FLAG pouvait
+# suivre trois WARN), 12 DERNIERES lignes brutes (souvent des notes techniques, pas la preuve), et
+# le « montre / ne prouve pas » absent au moment de decider.
+Test-Case "Ecran de fin : FLAG avant WARN, sens (montre / ne prouve pas) repris, preuves d'abord, 6 lignes max" {
+    $warn = New-ProbeResult -Id 'PSHIST' -Name 'Historique PowerShell' -Status 'WARN' -Severity 1 -Summary 'w' -Details @('Historique : C:\x', '  download-and-exec : irm x | iex')
+    $flagDetails = @('Volumes scannes : C:', 'NOTE fenetre : le journal tourne') + @(1..9 | ForEach-Object { "  2026-09-17 10:0$_  [C:] engineowning$_.exe" })
+    $flag = New-ProbeResult -Id 'DELFILES' -Name 'Fichiers supprimes (USN)' -Status 'FLAG' -Severity 2 -Summary 'f' -Details $flagDetails
+    # Get-FindingScreenLines rend une List protegee (return ,$out) : pas de @( ) autour, sinon
+    # on obtient un tableau a UN element (la liste entiere).
+    $lines = (Get-FindingScreenLines @($warn, $flag)).ToArray()
+    $iFlag = -1; $iWarn = -1
+    for ($k = 0; $k -lt $lines.Count; $k++) {
+        if ($iFlag -lt 0 -and $lines[$k].StartsWith('[FLAG]')) { $iFlag = $k }
+        if ($iWarn -lt 0 -and $lines[$k].StartsWith('[WARN]')) { $iWarn = $k }
+    }
+    $flagBlock = @($lines[($iFlag + 1)..($iWarn - 1)])
+    ($iFlag -ge 0) -and ($iWarn -gt $iFlag) -and
+    (@($flagBlock | Where-Object { $_ -match 'Montre :' }).Count -eq 1) -and
+    (@($flagBlock | Where-Object { $_ -match 'engineowning' }).Count -eq 6) -and
+    (@($flagBlock | Where-Object { $_ -match 'NOTE fenetre' }).Count -eq 0)
+}
+Test-Case "Action ROUGE : ne renvoie plus a un rapport « hashe » que l'ecran n'affiche plus" {
+    (Get-VerdictAction 'ROUGE') -notmatch '(?i)hash'
+}
+
 Section "K. BOUCLE DEXCHECK 17/09 : persistance au demarrage"
 # Probe-Persistence cherchait TOUS les outils d'entree, y compris ceux que DexCheck classe lui-meme
 # severite 0 (DS4Windows, Razer Synapse, G HUB, x360ce), en sous-chaine. Un joueur dont Synapse ou
