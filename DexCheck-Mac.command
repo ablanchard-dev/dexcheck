@@ -17,7 +17,7 @@
 # Compatible bash 3.2 (macOS) : pas de tableaux associatifs.
 # =============================================================================
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 DEEP=0; NOCOLOR=0; SELFTEST=0; OUTDIR=""
 
 for arg in "$@"; do
