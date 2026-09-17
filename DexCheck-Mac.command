@@ -89,6 +89,21 @@ screencap_unknown() {
   done
 }
 
+# user_homes BASE CURRENT_HOME -> un dossier par ligne : CURRENT_HOME d'abord, puis chaque compte
+# de BASE (/Users). Shared, Guest, fichiers et dossiers caches ecartes. Sans ca, les sondes ne
+# lisaient que $HOME : un joueur qui triche depuis un 2e compte macOS passait dessous (17/09).
+user_homes() {
+  local base="$1" cur="$2" d n
+  [ -n "$cur" ] && printf '%s\n' "$cur"
+  for d in "$base"/*; do
+    [ -d "$d" ] || continue
+    n=$(basename "$d")
+    case "$n" in Shared|Guest|.*) continue ;; esac
+    [ "$d" = "$cur" ] && continue
+    printf '%s\n' "$d"
+  done
+}
+
 # sev_to_verdict MAXSEV -> chaine de verdict (meme echelle que le Windows)
 sev_to_verdict() {
   case "$1" in
@@ -145,6 +160,16 @@ run_self_test() {
       "$(printf 'com.hnc.Discord\ncom.unknown.radarview\n' | screencap_unknown)" "com.unknown.radarview"
   _eq "screencap: une app radar contenant « arc » ou « obs » n'est PAS blanchie" \
       "$(printf 'com.x.radarclient\ncom.jobs.overlay\n' | screencap_unknown)" "$(printf 'com.x.radarclient\ncom.jobs.overlay')"
+
+  # 17/09 : les sondes ne lisaient que $HOME ; un 2e compte macOS passait dessous en silence.
+  local ub; ub=$(mktemp -d 2>/dev/null || echo "/tmp/dexcheck_users_$$")
+  mkdir -p "$ub/alice" "$ub/bob" "$ub/Shared" "$ub/Guest" "$ub/.localized"
+  : > "$ub/fichier-pas-un-compte"
+  _eq "user_homes: HOME d'abord, puis les autres comptes ; Shared/Guest/fichiers/dossiers caches ecartes" \
+      "$(user_homes "$ub" "$ub/bob")" "$(printf '%s\n%s' "$ub/bob" "$ub/alice")"
+  _eq "user_homes: HOME hors de la base reste en tete" \
+      "$(user_homes "$ub" "/var/root" | head -n 1)" "/var/root"
+  rm -rf "$ub"
 
   echo ""
   echo "BILAN self-test : ${fails} FAIL"
@@ -270,7 +295,10 @@ else
 fi
 
 # --- 7. Persistance (LaunchAgents / Daemons / login items) ------------------
-PERSIST=$( { ls "$HOME/Library/LaunchAgents" /Library/LaunchAgents /Library/LaunchDaemons 2>/dev/null; \
+# LaunchAgents de CHAQUE compte (pas seulement $HOME), puis ceux du systeme.
+HOMES=$(user_homes /Users "$HOME")
+PERSIST=$( { printf '%s\n' "$HOMES" | while IFS= read -r h; do [ -n "$h" ] && ls "$h/Library/LaunchAgents" 2>/dev/null; done; \
+             ls /Library/LaunchAgents /Library/LaunchDaemons 2>/dev/null; \
              osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null | tr ',' '\n'; } )
 PSUS=$(printf '%s\n' "$PERSIST" | grep -iE "$SIG_CHEAT|$SIG_CHEAT_GENERIC|$SIG_REMOTE" | sed 's/^ *//' | sort -u)
 PCNT=$(printf '%s\n' "$PERSIST" | grep -c .)
@@ -344,20 +372,26 @@ $(sqlite3 "$db" "select client from access where service='kTCCServiceScreenCaptu
     fi
 
     # 13. Historiques navigateurs : domaines de cheat
+    # Chaque compte macOS, pas seulement $HOME (un 2e compte ne doit pas passer dessous).
     BR=""
-    SAFARI="$HOME/Library/Safari/History.db"
-    [ -r "$SAFARI" ] && BR="$BR
+    while IFS= read -r h; do
+      [ -n "$h" ] || continue
+      SAFARI="$h/Library/Safari/History.db"
+      [ -r "$SAFARI" ] && BR="$BR
 $(sqlite3 "$SAFARI" "select url from history_items" 2>/dev/null | grep -iE "$SIG_CHEATDOM")"
-    for ch in "$HOME/Library/Application Support/Google/Chrome/Default/History" \
-              "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/History" \
-              "$HOME/Library/Application Support/Microsoft Edge/Default/History"; do
-      [ -r "$ch" ] || continue
-      if cp "$ch" "/tmp/wzc_hist_$$" 2>/dev/null; then
-        BR="$BR
+      for ch in "$h/Library/Application Support/Google/Chrome/Default/History" \
+                "$h/Library/Application Support/BraveSoftware/Brave-Browser/Default/History" \
+                "$h/Library/Application Support/Microsoft Edge/Default/History"; do
+        [ -r "$ch" ] || continue
+        if cp "$ch" "/tmp/wzc_hist_$$" 2>/dev/null; then
+          BR="$BR
 $(sqlite3 "/tmp/wzc_hist_$$" "select url from urls" 2>/dev/null | grep -iE "$SIG_CHEATDOM")"
-        rm -f "/tmp/wzc_hist_$$" 2>/dev/null
-      fi
-    done
+          rm -f "/tmp/wzc_hist_$$" 2>/dev/null
+        fi
+      done
+    done <<EOF_HOMES
+$HOMES
+EOF_HOMES
     BRH=$(printf '%s\n' "$BR" | grep -v '^$' | sort -u)
     if [ -n "$BRH" ]; then
       probe FLAG 2 "[-deep] Navigateurs (sites cheats)" "Domaine(s) de cheat dans l'historique"
@@ -367,9 +401,20 @@ $(sqlite3 "/tmp/wzc_hist_$$" "select url from urls" 2>/dev/null | grep -iE "$SIG
     fi
 
     # 14. Quarantine (telechargements)
-    QDB="$HOME/Library/Preferences/com.apple.LaunchServices.QuarantineEventsV2"
-    if [ -r "$QDB" ]; then
-      Q=$(sqlite3 "$QDB" "select LSQuarantineDataURLString from LSQuarantineEvent" 2>/dev/null | grep -iE "$SIG_CHEAT|$SIG_CHEATDOM" | sort -u)
+    # Base quarantine de chaque compte ; NA seulement si AUCUNE n'est lisible.
+    QREAD=0; Q=""
+    while IFS= read -r h; do
+      [ -n "$h" ] || continue
+      QDB="$h/Library/Preferences/com.apple.LaunchServices.QuarantineEventsV2"
+      [ -r "$QDB" ] || continue
+      QREAD=$((QREAD+1))
+      Q="$Q
+$(sqlite3 "$QDB" "select LSQuarantineDataURLString from LSQuarantineEvent" 2>/dev/null | grep -iE "$SIG_CHEAT|$SIG_CHEATDOM")"
+    done <<EOF_HOMES
+$HOMES
+EOF_HOMES
+    Q=$(printf '%s\n' "$Q" | grep -v '^$' | sort -u)
+    if [ "$QREAD" -gt 0 ]; then
       if [ -n "$Q" ]; then
         probe FLAG 2 "[-deep] Telechargements (quarantine)" "Telechargement(s) au nom suspect"
         printf '%s\n' "$Q" | head -n 10 | while IFS= read -r l; do [ -n "$l" ] && detail "$l"; done
