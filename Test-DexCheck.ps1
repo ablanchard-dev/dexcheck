@@ -1774,6 +1774,30 @@ Test-Case "Select-UserProfileDirs : compte courant d'abord, autres comptes ensui
     ($d.Count -eq 2) -and ($d[0] -eq 'C:\Users\bob') -and ($d[1] -eq 'C:\Users\alt') -and
     (@(Select-UserProfileDirs -Profiles $null -Current 'C:\Users\bob').Count -eq 1)
 }
+Test-Case "Select-UserHiveRoots : HKCU d'abord, puis la ruche de chaque AUTRE compte connecte (HKEY_USERS\SID) ; comptes deconnectes nommes comme NON lus" {
+    $cur = 'S-1-5-21-1-2-3-1001'; $oth = 'S-1-5-21-1-2-3-1002'; $off = 'S-1-5-21-1-2-3-1003'
+    $loaded = @('.DEFAULT','S-1-5-18','S-1-5-19','S-1-5-20', $cur, "${cur}_Classes", $oth, "${oth}_Classes")
+    $profiles = @(
+        [pscustomobject]@{ Sid=$cur; LocalPath='C:\Users\bob';  Special=$false },
+        [pscustomobject]@{ Sid=$oth; LocalPath='C:\Users\alt';  Special=$false },
+        [pscustomobject]@{ Sid=$off; LocalPath='C:\Users\off';  Special=$false },
+        [pscustomobject]@{ Sid='S-1-5-19'; LocalPath='C:\WINDOWS\ServiceProfiles\LocalService'; Special=$true }
+    )
+    $r = Select-UserHiveRoots -LoadedSids $loaded -CurrentSid $cur -Profiles $profiles
+    ($r.Roots.Count -eq 2) -and
+    ($r.Roots[0].User -eq 'HKCU:') -and ($r.Roots[0].Classes -eq 'HKCU:\Software\Classes') -and
+    ($r.Roots[1].User -eq "Registry::HKEY_USERS\$oth") -and ($r.Roots[1].Classes -eq "Registry::HKEY_USERS\${oth}_Classes") -and
+    (@($r.Unread).Count -eq 1) -and (@($r.Unread)[0] -eq 'C:\Users\off')
+}
+Test-Case "UserAssist, cles Run utilisateur, RecentDocs/RunMRU/MuiCache lisent la ruche de CHAQUE compte connecte" {
+    $ok = $true
+    foreach ($fn in @('Probe-ExecEvidence','Probe-Persistence','Probe-RecentActivity')) {
+        $src = (Get-Item ("function:" + $fn)).ScriptBlock.ToString()
+        if ($src -notmatch 'Get-UserHiveRoots') { Write-Host "      ($fn ne lit que HKCU)" -ForegroundColor DarkYellow; $ok = $false }
+        if ($src -match "'HKCU:\\") { Write-Host "      ($fn garde un chemin HKCU en dur)" -ForegroundColor DarkYellow; $ok = $false }
+    }
+    $ok
+}
 Test-Case "Historique PowerShell, navigateurs, rapports de plantage et cheats connus lisent TOUS les profils (pas seulement le compte courant)" {
     $ok = $true
     foreach ($fn in @('Probe-PsHistory','Probe-Browsers','Probe-WerCrashes','Probe-KnownCheats')) {

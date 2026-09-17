@@ -969,7 +969,10 @@ function Probe-ExecEvidence {
         }
     }
 
-    $uaRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist'
+    # UserAssist de CHAQUE compte connecte (HKCU puis HKEY_USERS\<SID>), pas seulement celui qui lance le check.
+    $hives = Get-UserHiveRoots
+    foreach ($hive in @($hives.Roots)) {
+    $uaRoot = "$($hive.User)\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
     try {
         if (Test-Path $uaRoot) {
             foreach ($guidKey in (Get-ChildItem $uaRoot -ErrorAction SilentlyContinue)) {
@@ -994,12 +997,14 @@ function Probe-ExecEvidence {
             }
         }
     } catch { }
+    }
 
     $flagPat = Get-CheatFlagPatterns
     $warnPat = @($script:CheatWarnWords)
 
     $total = $execs.Count
-    $details.Add("Traces d'execution lues : $total (BAM/DAM = derniere exec + chemin ; UserAssist = lancements GUI). Ces artefacts survivent a la suppression du binaire.")
+    $details.Add("Traces d'execution lues : $total (BAM/DAM = derniere exec + chemin ; UserAssist = lancements GUI de $(@($hives.Roots).Count) compte(s) connecte(s)). Ces artefacts survivent a la suppression du binaire.")
+    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : UserAssist non lu pour $(@($hives.Unread).Count) compte(s) Windows non connecte(s) (ruche non chargee ; la charger serait une ecriture) : $(@($hives.Unread) -join ', '). BAM/DAM couvre toujours tous les comptes.") }
     if (-not (Test-Admin)) { $details.Add("NOTE : sans admin, BAM/DAM (ruche SYSTEM) non lus -> couverture reduite a UserAssist (HKCU).") }
 
     $flagHits = @($execs | Where-Object { Test-AnyWord ([string]$_.Path) $flagPat })
@@ -1376,10 +1381,13 @@ function Probe-Persistence {
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce',
         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run',
-        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce',
-        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
-        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce'
     )
+    # Cles Run de CHAQUE compte connecte (HKCU puis HKEY_USERS\<SID>).
+    $hives = Get-UserHiveRoots
+    foreach ($hive in @($hives.Roots)) {
+        $runKeys += "$($hive.User)\SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "$($hive.User)\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
+    }
     foreach($rk in $runKeys){
         try {
             if (-not (Test-Path $rk)) { continue }
@@ -1445,7 +1453,8 @@ function Probe-Persistence {
         }
     } catch { $details.Add("NOTE : abonnements WMI (root\subscription) non lisibles ($($_.Exception.Message.Split([char]10)[0])).") }
     $suspect = Get-PersistenceHits -Entries $entries -Patterns $pat
-    $details.Add("Inspecte : cles Run/RunOnce (64 et 32 bits, machine et utilisateur), $taskCount tache(s) planifiee(s) avec leurs arguments, $startupCount element(s) des dossiers Demarrage (cible des raccourcis), $serviceCount service(s) Windows, $wmiCount abonnement(s) WMI qui lancent une commande ou un script.")
+    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : cles Run non lues pour $(@($hives.Unread).Count) compte(s) Windows non connecte(s) (ruche non chargee) : $(@($hives.Unread) -join ', ').") }
+    $details.Add("Inspecte : cles Run/RunOnce (64 et 32 bits, machine et $(@($hives.Roots).Count) compte(s) connecte(s)), $taskCount tache(s) planifiee(s) avec leurs arguments, $startupCount element(s) des dossiers Demarrage (cible des raccourcis), $serviceCount service(s) Windows, $wmiCount abonnement(s) WMI qui lancent une commande ou un script.")
     if ($suspect.Count -gt 0) {
         foreach($s in $suspect){ $details.Add("  $s") }
         New-ProbeResult -Id 'PERSIST' -Name 'Persistence' -Status 'WARN' -Severity 1 -Summary "$($suspect.Count) point(s) de persistence a verifier" -Details $details
@@ -2310,6 +2319,44 @@ function Select-UserProfileDirs {
     return @($out)
 }
 
+function Select-UserHiveRoots {
+    # PUR/testable. Ruches de registre UTILISATEUR a lire : HKCU d'abord, puis la ruche de chaque AUTRE
+    # compte CONNECTE (HKEY_USERS\<SID> et <SID>_Classes, deja chargees par Windows : rien a charger).
+    # Un compte deconnecte n'a pas sa ruche chargee : la lire exigerait `reg load` (une ecriture), que le
+    # check ne fait jamais. Ces comptes sont rendus dans Unread pour que le rapport le DISE.
+    param([string[]]$LoadedSids, [string]$CurrentSid, $Profiles)
+    $roots = New-Object System.Collections.Generic.List[object]
+    $roots.Add([pscustomobject]@{ Sid=$CurrentSid; User='HKCU:'; Classes='HKCU:\Software\Classes' })
+    $loaded = @{}
+    foreach ($s in @($LoadedSids)) {
+        if ([string]::IsNullOrWhiteSpace($s)) { continue }
+        if ($s -notmatch '^S-1-5-21-[\d-]+$') { continue }   # comptes locaux/domaine ; ecarte _Classes, SYSTEM, services
+        $loaded[$s] = $true
+        if ($s -eq $CurrentSid) { continue }
+        $roots.Add([pscustomobject]@{ Sid=$s; User="Registry::HKEY_USERS\$s"; Classes="Registry::HKEY_USERS\${s}_Classes" })
+    }
+    $unread = New-Object System.Collections.Generic.List[string]
+    foreach ($p in @($Profiles)) {
+        if ($null -eq $p -or $p.Special) { continue }
+        $sid = [string]$p.Sid; $lp = [string]$p.LocalPath
+        if ($sid -eq $CurrentSid -or $loaded.ContainsKey($sid)) { continue }
+        if ($lp -notmatch '(?i)^[a-z]:\\users\\[^\\]+\\?$') { continue }
+        $unread.Add($lp.TrimEnd('\'))
+    }
+    # ToArray() : sous PowerShell 5.1, @(<List generique>) dans un litteral d'objet leve « types des arguments ».
+    return [pscustomobject]@{ Roots = $roots.ToArray(); Unread = $unread.ToArray() }
+}
+
+function Get-UserHiveRoots {
+    $cur = ''
+    try { $cur = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value } catch { }
+    $loaded = @()
+    try { $loaded = @(Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction Stop | ForEach-Object { $_.PSChildName }) } catch { }
+    $profiles = @()
+    try { $profiles = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | ForEach-Object { [pscustomobject]@{ Sid=$_.SID; LocalPath=$_.LocalPath; Special=[bool]$_.Special } }) } catch { }
+    return (Select-UserHiveRoots -LoadedSids $loaded -CurrentSid $cur -Profiles $profiles)
+}
+
 function Get-UserProfileDirs {
     # Les profils qui existent sur le disque. Les autres comptes ne sont lisibles qu'en admin ; sans
     # admin, leurs fichiers sont simplement absents des resultats (chaque sonde le dit).
@@ -2628,8 +2675,12 @@ function ConvertFrom-MuiCacheName {
 function Probe-RecentActivity {
     $details = New-Object System.Collections.Generic.List[string]
     $names = New-Object System.Collections.Generic.List[string]
+    $hives = Get-UserHiveRoots
+    $muiCount = 0
+    # Chaque compte Windows connecte (HKCU puis HKEY_USERS\<SID>), pas seulement celui qui lance le check.
+    foreach ($hive in @($hives.Roots)) {
     # RecentDocs = fichiers ouverts recemment (valeurs binaires, nom en tete UTF-16).
-    $rdRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs'
+    $rdRoot = "$($hive.User)\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs"
     try {
         $keys = @($rdRoot)
         $keys += @(Get-ChildItem $rdRoot -ErrorAction SilentlyContinue | ForEach-Object { $_.PSPath })
@@ -2644,7 +2695,7 @@ function Probe-RecentActivity {
         }
     } catch { }
     # RunMRU = commandes tapees dans la boite Executer (valeurs texte "cmd\1").
-    $rmRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU'
+    $rmRoot = "$($hive.User)\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"
     try {
         $item = Get-Item -LiteralPath $rmRoot -ErrorAction SilentlyContinue
         if ($null -ne $item) {
@@ -2657,8 +2708,7 @@ function Probe-RecentActivity {
     } catch { }
     # MuiCache = chemin de chaque exe LANCE (Explorateur/ShellExecute) avec son nom d'application, ecrit au
     # lancement, JAMAIS purge par Windows, oublie par la plupart des 'cleaners' -> source anti-wipe de plus.
-    $muiRoot = 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache'
-    $muiCount = 0
+    $muiRoot = "$($hive.Classes)\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
     try {
         $item = Get-Item -LiteralPath $muiRoot -ErrorAction SilentlyContinue
         if ($null -ne $item) {
@@ -2668,7 +2718,9 @@ function Probe-RecentActivity {
             }
         }
     } catch { }
-    $details.Add("$($names.Count) entree(s) RecentDocs/RunMRU/MuiCache analysee(s) (fichiers ouverts recemment + commandes Executer + $muiCount exe lances).")
+    }
+    $details.Add("$($names.Count) entree(s) RecentDocs/RunMRU/MuiCache analysee(s) sur $(@($hives.Roots).Count) compte(s) connecte(s) (fichiers ouverts recemment + commandes Executer + $muiCount exe lances).")
+    if (@($hives.Unread).Count -gt 0) { $details.Add("NOTE : non lu pour $(@($hives.Unread).Count) compte(s) Windows non connecte(s) (ruche non chargee ; la charger serait une ecriture) : $(@($hives.Unread) -join ', ').") }
     $a = Get-WerCrashHits -Names $names -FlagPatterns (Get-CheatFlagPatterns) -WarnPatterns $script:CheatWarnWords
     if ($a.Flag.Count -gt 0) {
         foreach ($x in ($a.Flag | Select-Object -Unique)) { $details.Add("Nom de cheat DISTINCTIF ouvert/tape recemment : $x") }
