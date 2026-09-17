@@ -135,7 +135,9 @@ $script:VirtualPadDrivers = @('vigembus','nefarius','virtual gamepad','vjoy','sc
 $script:CheatFlagWords = @(
     'engineowning','enginowning','phantomoverlay','lavicheats','interwebz','memesense',
     'fecurity','disconnect.gg','coldware','coldvision','hypervision','hypercheats',
-    'ring-1','susano','abstrakt','klarcheats','cobraaim','cronus','xim',
+    # 17/09 : 'susano' (Naruto) et 'abstrakt' (mot allemand/nordique) accusaient des fichiers
+    # ordinaires ; leurs produits sont GenericName. Seul le nom compose distinctif reste FLAG.
+    'ring-1','susanocheats','klarcheats','cobraaim','cronus','xim',
     'bleachbit','privazer','skript.gg','extreme injector','extremeinjector','extreme_injector'
 )
 # reWASD = outil de remap LEGITIME (dual-use) -> WARN, jamais FLAG (decision Alex 03/07 : un mec

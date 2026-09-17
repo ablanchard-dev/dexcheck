@@ -1824,6 +1824,23 @@ Test-Case "Select-ReadableHives (revue 17/09) : une ruche connectee mais REFUSEE
     ($r.Roots.Count -eq 1) -and ($r.Roots[0].Sid -eq 'S-1') -and
     (@($r.Unread).Count -eq 2) -and ((@($r.Unread) -join '|') -match 'S-2.*admin')
 }
+# Boucle 17/09 : 'abstrakt' (mot allemand/nordique courant) et 'susano' (Naruto) etaient dans les mots FLAG
+# depuis le 1er commit, alors que la liste des produits les marque elle-meme GenericName. Supprimer
+# « Abstrakt Kunst.jpg » ou « susano_wallpaper.png » donnait un FLAG « cheat distinctif » => SUSPECT.
+Test-Case "FLAG GARDE-FOU : des fichiers ordinaires au mot 'abstrakt' ou 'susano' ne sont PAS un cheat distinctif" {
+    $p = Get-CheatFlagPatterns
+    (-not (Test-AnyWord 'Abstrakt Kunst.jpg' $p)) -and (-not (Test-AnyWord 'susano_wallpaper.png' $p)) -and
+    (Test-AnyWord 'susanocheats_loader.exe' $p)
+}
+Test-Case "FLAG GARDE-FOU structurel : aucun nom de produit marque GenericName n'est un mot FLAG a lui seul" {
+    $ok = $true
+    foreach ($c in @($script:CheatSoftware | Where-Object { $_.GenericName })) {
+        foreach ($tok in @(([string]$c.Name).ToLowerInvariant() -split '/')) {
+            if ($script:CheatFlagWords -contains $tok.Trim()) { Write-Host "      ('$tok' est generique mais FLAG)" -ForegroundColor DarkYellow; $ok = $false }
+        }
+    }
+    $ok
+}
 Test-Case "Raisonnement du verdict : les comptes Windows NON lus sont nommes a l'ecran, avec le geste a faire ; rien si tout a ete lu" {
     $note = 'NOTE : non lu pour 1 compte(s) Windows : C:\Users\frere (deconnecte) (deconnecte = ruche non chargee, la charger serait une ecriture ; acces refuse = relancer en admin).'
     $avec = @((New-ProbeResult -Id 'MRU' -Name 'm' -Status 'OK' -Severity 0 -Summary 's' -Details @('x', $note)))
