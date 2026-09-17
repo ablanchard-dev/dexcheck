@@ -1760,6 +1760,28 @@ Test-Case "Persistance GARDE-FOU : une cle Run vers le profil utilisateur (Disco
     )
     (Get-PersistenceHits -Entries $clean -Patterns $p).Count -eq 0
 }
+# Comptes Windows multiples (mesure 17/09 : 3 profils sur le PC d'Alex). Les sondes fichier ne lisaient que le
+# compte qui lance le check : un joueur qui triche depuis un 2e compte passait dessous en silence.
+Test-Case "Select-UserProfileDirs : compte courant d'abord, autres comptes ensuite ; profils systeme, speciaux et doublons ecartes" {
+    $profiles = @(
+        [pscustomobject]@{ LocalPath='C:\Users\alt';   Special=$false },
+        [pscustomobject]@{ LocalPath='C:\Users\BOB';   Special=$false },
+        [pscustomobject]@{ LocalPath='C:\WINDOWS\ServiceProfiles\LocalService'; Special=$true },
+        [pscustomobject]@{ LocalPath='C:\WINDOWS\system32\config\systemprofile'; Special=$false },
+        [pscustomobject]@{ LocalPath=''; Special=$false }
+    )
+    $d = @(Select-UserProfileDirs -Profiles $profiles -Current 'C:\Users\bob')
+    ($d.Count -eq 2) -and ($d[0] -eq 'C:\Users\bob') -and ($d[1] -eq 'C:\Users\alt') -and
+    (@(Select-UserProfileDirs -Profiles $null -Current 'C:\Users\bob').Count -eq 1)
+}
+Test-Case "Historique PowerShell, navigateurs, rapports de plantage et cheats connus lisent TOUS les profils (pas seulement le compte courant)" {
+    $ok = $true
+    foreach ($fn in @('Probe-PsHistory','Probe-Browsers','Probe-WerCrashes','Probe-KnownCheats')) {
+        $src = (Get-Item ("function:" + $fn)).ScriptBlock.ToString()
+        if ($src -notmatch 'Get-UserProfileDirs') { Write-Host "      ($fn ne lit que le compte courant)" -ForegroundColor DarkYellow; $ok = $false }
+    }
+    $ok
+}
 Test-Case "Probe-Persistence lit aussi les services Windows et les abonnements WMI permanents" {
     $src = ${function:Probe-Persistence}.ToString()
     ($src -match 'Win32_Service') -and ($src -match 'root\\subscription') -and ($src -match 'CommandLineEventConsumer') -and ($src -match 'ActiveScriptEventConsumer')
@@ -1832,6 +1854,23 @@ Test-Case "PSHIST : cible au nom de cheat distinctif => reste FLAG" {
         $env:APPDATA = $d
         (Probe-PsHistory).Status -eq 'FLAG'
     } finally { $env:APPDATA = $saved; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+}
+Test-Case "PSHIST VRAI-POSITIF bout en bout : la trace est dans un AUTRE compte Windows (le compte courant est propre) => FLAG" {
+    $saved = $env:APPDATA
+    $root  = Join-Path $env:TEMP ('dexcheck-profiles-' + [guid]::NewGuid().ToString('N'))
+    $clean = Join-Path $root 'courant\AppData\Roaming'
+    $other = Join-Path $root 'autre'
+    try {
+        New-Item -ItemType Directory -Force $clean | Out-Null
+        $h = Join-Path $other 'AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine'
+        New-Item -ItemType Directory -Force $h | Out-Null
+        Set-Content -LiteralPath (Join-Path $h 'ConsoleHost_history.txt') -Value 'irm https://engineowning.to/loader.ps1 | iex'
+        $env:APPDATA = $clean
+        # Seul l'autre compte est connu : on isole du vrai disque de la machine de test.
+        function Get-UserProfileDirs { @($other) }
+        $r = Probe-PsHistory
+        ($r.Status -eq 'FLAG') -and (($r.Details -join "`n") -match [regex]::Escape($other))
+    } finally { $env:APPDATA = $saved; Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
 }
 # « les fichiers de resultats on s'en fout, on veut le resultat direct, pas sur le Bureau »
 Test-Case "Sortie : sans -OutputDir, les fichiers vont dans TEMP, JAMAIS sur le Bureau" {

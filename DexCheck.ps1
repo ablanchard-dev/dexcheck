@@ -1653,18 +1653,27 @@ function Probe-Browsers {
     $hits = New-Object System.Collections.Generic.List[string]
     $domains = New-Object System.Collections.Generic.List[string]
     foreach($c in $script:CheatSoftware){ foreach($d in $c.Domains){ $domains.Add($d) } }
-    $local = $env:LOCALAPPDATA; $roaming = $env:APPDATA
-    $dbs = @(
-        "$local\Google\Chrome\User Data\*\History",
-        "$local\Microsoft\Edge\User Data\*\History",
-        "$local\BraveSoftware\Brave-Browser\User Data\*\History",
-        "$roaming\Mozilla\Firefox\Profiles\*\places.sqlite",
-        "$roaming\Opera Software\Opera Stable\History"
-    )
+    # Tous les comptes Windows : le compte courant (variables d'environnement, qui suivent une eventuelle
+    # redirection) puis chaque profil.
+    $pairs = @(,@($env:LOCALAPPDATA, $env:APPDATA))
+    foreach ($pd in @(Get-UserProfileDirs)) { $pairs += ,@((Join-Path $pd 'AppData\Local'), (Join-Path $pd 'AppData\Roaming')) }
+    $dbs = @()
+    foreach ($pr in $pairs) {
+        $local = $pr[0]; $roaming = $pr[1]
+        if (-not $local -or -not $roaming) { continue }
+        $dbs += "$local\Google\Chrome\User Data\*\History",
+            "$local\Microsoft\Edge\User Data\*\History",
+            "$local\BraveSoftware\Brave-Browser\User Data\*\History",
+            "$roaming\Mozilla\Firefox\Profiles\*\places.sqlite",
+            "$roaming\Opera Software\Opera Stable\History"
+    }
     $checked = 0
+    $seenDb = @{}
     foreach($pattern in $dbs){
         $files = @(Get-ChildItem $pattern -File -ErrorAction SilentlyContinue)
         foreach($f in $files){
+            if ($seenDb.ContainsKey($f.FullName.ToLowerInvariant())) { continue }
+            $seenDb[$f.FullName.ToLowerInvariant()] = $true
             $checked++
             $details.Add("Base navigateur : $($f.FullName)  (modifiee $($f.LastWriteTime))")
             $text = Get-FileBytesText $f.FullName
@@ -1757,9 +1766,10 @@ function Get-PsHistoryFlagTargets {
 function Probe-PsHistory {
     $details = New-Object System.Collections.Generic.List[string]
     # PSReadLine journalise les commandes tapees par l'utilisateur (par-user, sans admin).
-    $paths = @(
-        (Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt')
-    )
+    # Tous les comptes Windows, pas seulement celui qui lance le check.
+    $paths = @((Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt'))
+    foreach ($pd in @(Get-UserProfileDirs)) { $paths += (Join-Path $pd 'AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt') }
+    $paths = @($paths | Where-Object { $_ } | Sort-Object { $_.ToLowerInvariant() } -Unique)
     $lines = New-Object System.Collections.Generic.List[string]
     $found = 0
     foreach ($p in $paths) {
@@ -2280,6 +2290,34 @@ function Probe-Network {
     New-ProbeResult -Id 'NET' -Name 'Connexions reseau live' -Status 'INFO' -Severity 0 -Summary "$($conns.Count) connexion(s) sortante(s), 0 process cheat connu" -Details $details
 }
 
+function Select-UserProfileDirs {
+    # PUR/testable. Dossiers de profil a lire : le compte courant D'ABORD, puis les autres comptes
+    # Windows. Mesure 17/09 : 3 profils sur le PC d'Alex. Sans ca, un joueur qui triche depuis un
+    # 2e compte passait sous les sondes fichier en silence. Profils speciaux (services) et profils
+    # systeme (hors \Users\) ecartes ; doublons ignores sans tenir compte de la casse.
+    param($Profiles, [string]$Current)
+    $out = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($Current)) { $out.Add($Current.TrimEnd('\')) }
+    foreach ($p in @($Profiles)) {
+        if ($null -eq $p) { continue }
+        if ($p.Special) { continue }
+        $lp = [string]$p.LocalPath
+        if ([string]::IsNullOrWhiteSpace($lp)) { continue }
+        if ($lp -notmatch '(?i)^[a-z]:\\users\\[^\\]+\\?$') { continue }
+        $lp = $lp.TrimEnd('\')
+        if (-not ($out | Where-Object { $_ -ieq $lp })) { $out.Add($lp) }
+    }
+    return @($out)
+}
+
+function Get-UserProfileDirs {
+    # Les profils qui existent sur le disque. Les autres comptes ne sont lisibles qu'en admin ; sans
+    # admin, leurs fichiers sont simplement absents des resultats (chaque sonde le dit).
+    $profiles = @()
+    try { $profiles = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | ForEach-Object { [pscustomobject]@{ LocalPath = $_.LocalPath; Special = [bool]$_.Special } }) } catch { }
+    return @(Select-UserProfileDirs -Profiles $profiles -Current $env:USERPROFILE | Where-Object { Test-Path -LiteralPath $_ })
+}
+
 function Get-UserFolderRoots {
     # Bureau / Documents / Telechargements de l'utilisateur : chemins historiques ET emplacements
     # REELS. Avec OneDrive (sauvegarde des dossiers), le vrai Bureau est OneDrive\Bureau et
@@ -2311,7 +2349,14 @@ function Probe-KnownCheats {
     $procNames = @()
     try { $procNames = (Get-Process -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) } catch { }
     # dossiers/installeurs sur quelques racines, profondeur bornee
-    $roots = @(@($env:USERPROFILE) + @(Get-UserFolderRoots) + @($env:LOCALAPPDATA, $env:ProgramData)) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+    $roots = @(@($env:USERPROFILE) + @(Get-UserFolderRoots) + @($env:LOCALAPPDATA, $env:ProgramData))
+    # Les autres comptes Windows : racine du profil, Bureau / Documents / Telechargements, AppData\Local.
+    foreach ($pd in @(Get-UserProfileDirs)) {
+        $roots += $pd
+        $roots += @(Get-UserFolderRoots -ProfileDir $pd -Desktop '' -Documents '' -Downloads '')
+        $roots += (Join-Path $pd 'AppData\Local')
+    }
+    $roots = @($roots | Where-Object { $_ -and (Test-Path $_) } | Sort-Object { $_.ToLowerInvariant() } -Unique)
     $folderNames = New-Object System.Collections.Generic.List[string]
     foreach($r in $roots){
         try { Get-ChildItem $r -Directory -ErrorAction SilentlyContinue | Select-Object -First 400 | ForEach-Object { $folderNames.Add($_.Name) } } catch { }
@@ -2520,7 +2565,9 @@ function Get-WerAssessment {
 function Probe-WerCrashes {
     $details = New-Object System.Collections.Generic.List[string]
     $names = New-Object System.Collections.Generic.List[string]
-    $roots = @("$env:ProgramData\Microsoft\Windows\WER","$env:LOCALAPPDATA\Microsoft\Windows\WER") | Where-Object { $_ } | Select-Object -Unique
+    $roots = @("$env:ProgramData\Microsoft\Windows\WER","$env:LOCALAPPDATA\Microsoft\Windows\WER")
+    foreach ($pd in @(Get-UserProfileDirs)) { $roots += (Join-Path $pd 'AppData\Local\Microsoft\Windows\WER') }   # tous les comptes
+    $roots = @($roots | Where-Object { $_ } | Sort-Object { $_.ToLowerInvariant() } -Unique)
     $scanned = 0; $cap = 3000; $capped = $false; $denied = 0
     foreach ($r in $roots) {
         foreach ($sub in @('ReportArchive','ReportQueue')) {
