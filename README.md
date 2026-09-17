@@ -47,8 +47,13 @@ what the alert means and its last pieces of evidence (file name, date, source).
 - **Traces that survive deletion**: USN journal (deleted files), Prefetch, BAM/DAM,
   UserAssist, Shimcache, PCA, MuiCache, WER crashes, Defender detection history,
   download provenance (Mark-of-the-Web).
-- **What runs now**: processes and command lines, outbound connections, persistence,
-  injection vectors, kernel drivers (BYOVD), refused drivers (Code Integrity log).
+- **What runs now**: processes and command lines, outbound connections, persistence
+  (Run keys, scheduled tasks with their arguments, Startup folders, services, WMI
+  subscriptions), injection vectors, kernel drivers (BYOVD), refused drivers (Code Integrity log).
+- **Every Windows account, not only the one running the check**: a second account used to
+  cheat is read too (files of every profile, registry of every signed-in account). Accounts
+  that are signed out are named in the report as not read, since reading them would mean
+  loading their registry hive.
 - **Hardware**: DMA cards by PCIe identity, capture cards, Cronus / XIM / kmbox
   (including unplugged before the check), HWID spoofing.
 - **Clean-up signals**: cleared event logs, wipe tools, deleted shadow copies,
