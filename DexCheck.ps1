@@ -1344,14 +1344,36 @@ function Probe-Processes {
     }
 }
 
+function Get-PersistenceHits {
+    # PUR/testable. Entrees de demarrage = @{ Source ('Run'|'Tache'|'Demarrage'); Name; Command }.
+    # Command = la LIGNE COMPLETE : pour une tache, Execute + Arguments. Sans les arguments, une tache
+    # 'powershell.exe -File ...\EngineOwningLoader.ps1' ne montrait que 'powershell.exe' (mesure 17/09 :
+    # 17 taches du PC d'Alex lancent un interpreteur, le vrai programme n'est que dans les arguments).
+    # Zone Temp/Downloads : suspecte pour Run et Demarrage (un programme qui se relance depuis Temp),
+    # PAS pour une tache seule (installeurs et MAJ legitimes en posent) : la il faut un nom de cheat.
+    param($Entries, [string[]]$Patterns)
+    $hits = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Entries) { return ,$hits }
+    foreach ($e in $Entries) {
+        if ($null -eq $e) { continue }
+        $nm = [string]$e.Name; $cmd = [string]$e.Command; $src = [string]$e.Source
+        if ((Test-CheatNameMatch $cmd $Patterns) -or (Test-CheatNameMatch $nm $Patterns)) { $hits.Add("${src}: $nm = $cmd") }
+        elseif ($src -ne 'Tache' -and (Test-AnyPattern $cmd @('\temp\','\downloads\'))) { $hits.Add("$src en zone temp: $nm = $cmd") }
+    }
+    return ,$hits
+}
+
 function Probe-Persistence {
     $details = New-Object System.Collections.Generic.List[string]
-    $suspect = New-Object System.Collections.Generic.List[string]
     $pat = Get-PersistencePatterns
-    # Run keys
+    $entries = New-Object System.Collections.Generic.List[object]
+    # Cles Run, y compris la vue 32 bits (WOW6432Node) : un programme 32 bits s'y enregistre et la vue
+    # 64 bits ne la montre pas.
     $runKeys = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce',
         'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
         'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
     )
@@ -1361,25 +1383,43 @@ function Probe-Persistence {
             $props = Get-ItemProperty $rk -ErrorAction SilentlyContinue
             foreach($p in $props.PSObject.Properties){
                 if ($p.Name -like 'PS*') { continue }
-                $val = [string]$p.Value
-                if ((Test-CheatNameMatch $val $pat) -or (Test-CheatNameMatch $p.Name $pat)) { $suspect.Add("Run: $($p.Name) = $val") }
-                elseif (Test-AnyPattern $val @('\temp\','\downloads\','\appdata\local\temp\')) { $suspect.Add("Run en zone temp: $($p.Name) = $val") }
+                $entries.Add([pscustomobject]@{ Source='Run'; Name=$p.Name; Command=[string]$p.Value })
             }
         } catch { }
     }
-    # Scheduled tasks
+    # Taches planifiees : executable ET arguments.
+    $taskCount = 0
     try {
         $tasks = Get-ScheduledTask -ErrorAction SilentlyContinue
         foreach($tk in $tasks){
-            $acts = $tk.Actions
-            foreach($a in $acts){
-                $ex = ''
+            $taskCount++
+            foreach($a in $tk.Actions){
+                $ex = ''; $ar = ''
                 try { $ex = [string]$a.Execute } catch { }
-                if ((Test-CheatNameMatch $ex $pat) -or (Test-CheatNameMatch $tk.TaskName $pat)) { $suspect.Add("Tache: $($tk.TaskName) -> $ex") }
+                try { $ar = [string]$a.Arguments } catch { }
+                $entries.Add([pscustomobject]@{ Source='Tache'; Name=$tk.TaskName; Command=("$ex $ar").Trim() })
             }
         }
     } catch { }
-    $details.Add("Cles Run + taches planifiees inspectees.")
+    # Dossiers Demarrage (utilisateur + commun) : un raccourci est lu jusqu'a sa CIBLE (lecture seule,
+    # CreateShortcut n'ecrit rien sans Save()).
+    $startupCount = 0
+    $shell = $null
+    try { $shell = New-Object -ComObject WScript.Shell } catch { }
+    foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('CommonStartup'))) {
+        if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+        foreach ($f in @(Get-ChildItem -LiteralPath $dir -File -Force -ErrorAction SilentlyContinue)) {
+            if ($f.Name -eq 'desktop.ini') { continue }
+            $startupCount++
+            $cmd = $f.FullName
+            if ($f.Extension -eq '.lnk' -and $shell) {
+                try { $lnk = $shell.CreateShortcut($f.FullName); if ($lnk.TargetPath) { $cmd = ("$($lnk.TargetPath) $($lnk.Arguments)").Trim() } } catch { }
+            }
+            $entries.Add([pscustomobject]@{ Source='Demarrage'; Name=$f.Name; Command=$cmd })
+        }
+    }
+    $suspect = Get-PersistenceHits -Entries $entries -Patterns $pat
+    $details.Add("Inspecte : cles Run/RunOnce (64 et 32 bits, machine et utilisateur), $taskCount tache(s) planifiee(s) avec leurs arguments, $startupCount element(s) des dossiers Demarrage (cible des raccourcis).")
     if ($suspect.Count -gt 0) {
         foreach($s in $suspect){ $details.Add("  $s") }
         New-ProbeResult -Id 'PERSIST' -Name 'Persistence' -Status 'WARN' -Severity 1 -Summary "$($suspect.Count) point(s) de persistence a verifier" -Details $details

@@ -1714,6 +1714,40 @@ Test-Case "Persistance : un cheat ou un outil anti-recul au demarrage reste susp
 Test-Case "Persistance : un motif court n'accuse pas un chemin qui le contient ('ring-1' dans 'spring-1.5')" {
     -not (Test-CheatNameMatch 'C:\dev\spring-1.5\bin\java.exe' (Get-PersistencePatterns))
 }
+# Trous mesures sur le PC d'Alex (17/09) : 17 taches lancent un interpreteur (powershell, rundll32) et le
+# VRAI programme n'est que dans les arguments, que la sonde ne lisait pas ; le dossier Demarrage (2 raccourcis)
+# et la cle Run 32 bits (WOW6432Node, 1 valeur) n'etaient pas lus du tout.
+Test-Case "Persistance VRAI-POSITIF : tache planifiee au nom anodin qui lance powershell -File ...EngineOwningLoader.ps1 => suspect (on lit les ARGUMENTS)" {
+    $e = @([pscustomobject]@{ Source='Tache'; Name='OneDriveSyncHelper'; Command='powershell.exe -WindowStyle Hidden -File C:\Users\bob\AppData\Roaming\sync\EngineOwningLoader.ps1' })
+    (Get-PersistenceHits -Entries $e -Patterns (Get-PersistencePatterns)).Count -eq 1
+}
+Test-Case "Persistance VRAI-POSITIF : raccourci du dossier Demarrage qui pointe vers un cheat ou vers Temp => suspect" {
+    $p = Get-PersistencePatterns
+    $cheat = @([pscustomobject]@{ Source='Demarrage'; Name='Discord.lnk'; Command='C:\Tools\engineowning\launcher.exe' })
+    $temp  = @([pscustomobject]@{ Source='Demarrage'; Name='update.lnk';  Command='C:\Users\bob\AppData\Local\Temp\x7\svc.exe' })
+    ((Get-PersistenceHits -Entries $cheat -Patterns $p).Count -eq 1) -and ((Get-PersistenceHits -Entries $temp -Patterns $p).Count -eq 1)
+}
+Test-Case "Persistance GARDE-FOU (cas reels du PC d'Alex 17/09) : WZP SOUND, Athena, AnyDesk, rundll32 PcaSvc => AUCUN hit ; null/vide => 0, pas de crash" {
+    $p = Get-PersistencePatterns
+    $clean = @(
+        [pscustomobject]@{ Source='Tache'; Name='WZP-SOUND-Guard'; Command='powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Program Files\WZP SOUND\guard.ps1"' },
+        [pscustomobject]@{ Source='Tache'; Name='Athena-Autorun'; Command='powershell -ExecutionPolicy Bypass -File %USERPROFILE%\athena\Start-Athena.ps1' },
+        [pscustomobject]@{ Source='Tache'; Name='PcaPatchDbTask'; Command='%windir%\system32\rundll32.exe %windir%\system32\PcaSvc.dll,PcaPatchSdbTask' },
+        [pscustomobject]@{ Source='Demarrage'; Name='AnyDesk.lnk'; Command='"C:\Program Files (x86)\AnyDesk\AnyDesk.exe" --control' }
+    )
+    ((Get-PersistenceHits -Entries $clean -Patterns $p).Count -eq 0) -and
+    ((Get-PersistenceHits -Entries $null -Patterns $p).Count -eq 0) -and
+    ((Get-PersistenceHits -Entries @() -Patterns $p).Count -eq 0)
+}
+Test-Case "Persistance : une TACHE dans Temp n'est pas suspecte a elle seule (installeurs/MAJ legitimes) ; seul un nom de cheat compte" {
+    $e = @([pscustomobject]@{ Source='Tache'; Name='SetupCleanup'; Command='C:\Users\bob\AppData\Local\Temp\setup\cleanup.exe' })
+    (Get-PersistenceHits -Entries $e -Patterns (Get-PersistencePatterns)).Count -eq 0
+}
+Test-Case "Probe-Persistence lit les trois sources qui manquaient : arguments de tache, dossiers Demarrage, Run 32 bits" {
+    $src = ${function:Probe-Persistence}.ToString()
+    # la ligne de tache doit CONTENIR les arguments (lire .Arguments sans les mettre dans Command survivait a la mutation)
+    ($src -match '\.Arguments') -and ($src -match 'Command=\("\$ex \$ar"\)') -and ($src -match "GetFolderPath\('Startup'\)") -and ($src -match "GetFolderPath\('CommonStartup'\)") -and ($src -match 'WOW6432Node')
+}
 
 Section "J. REVUE 17/09 : PowerShell 32 bits sur Windows 64 bits"
 # Dans un PowerShell 32 bits, HKLM:\SOFTWARE\...\Run, IFEO et System32\drivers sont REDIRIGES vers
